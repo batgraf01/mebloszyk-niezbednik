@@ -25,3 +25,7 @@ app.py.local_backup_*
 
 # Large local data snapshots
 *.xlsx
+
+# Release/rollback runtime artifacts
+backups/
+zmiany.log
