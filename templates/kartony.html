@@ -1,0 +1,517 @@
+{% extends "base_panel.html" %}
+{% block title %}Kartonowanie{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <h2 class="mb-0">Kartonowanie (części w kartonach)</h2>
+      <span class="text-muted small">Produkt → kartony → lista części</span>
+    </div>
+
+    <div class="p-3 rounded border bg-white mb-3">
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+        <div class="fw-semibold">Import ze zdjęcia / PDF (OCR)</div>
+        <div class="text-muted small">Działa w przeglądarce (bez kluczy API)</div>
+      </div>
+      <div class="row g-2 align-items-end">
+        <div class="col-12 col-lg-5">
+          <label class="form-label mb-1">Plik</label>
+          <input id="importFile" type="file" class="form-control form-control-sm" accept="application/pdf,image/*">
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label mb-1">Nazwa produktu</label>
+          <input id="importProductName" type="text" class="form-control form-control-sm" placeholder="np. Pergola Skyline 3x4">
+        </div>
+        <div class="col-12 col-lg-4 d-flex gap-2">
+          <button id="importOcrBtn" type="button" class="btn btn-sm btn-success">Rozpoznaj (OCR)</button>
+          <button id="importApplyBtn" type="button" class="btn btn-sm btn-primary" disabled>Zapisz do bazy</button>
+          <button id="importClearBtn" type="button" class="btn btn-sm btn-outline-secondary">Wyczyść</button>
+        </div>
+      </div>
+      <div class="text-muted small mt-2" id="importStatus"></div>
+      <div class="row g-2 mt-1">
+        <div class="col-12 col-lg-6">
+          <label class="form-label mb-1">Tekst z OCR (podgląd)</label>
+          <textarea id="importText" class="form-control" rows="8" spellcheck="false" placeholder="Tu pojawi się tekst z OCR…"></textarea>
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label mb-1">Podgląd parsowania</label>
+          <div id="importPreview" class="border rounded p-2 bg-light" style="min-height: 174px; overflow:auto;">
+            <div class="text-muted small">Wybierz plik i kliknij „Rozpoznaj (OCR)”.</div>
+          </div>
+        </div>
+      </div>
+      <div class="text-muted small mt-2">
+        Wskazówka: najlepsze wyniki daje PDF/zdjęcie prosto z drukarki (kontrast, prosto, bez cieni).
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-12 col-lg-4">
+        <div class="p-3 rounded border bg-white">
+          <div class="mb-2">
+            <label class="form-label mb-1">Szukaj</label>
+            <input id="packSearch" type="text" class="form-control form-control-sm" placeholder="np. skyline, karton 2/4, śruba…">
+          </div>
+          <div class="mb-0">
+            <label class="form-label mb-1">Produkty</label>
+            <div class="small text-muted mb-1">Kliknij w wiersz: wybór produktu. Zaznacz „Instrukcja”: zapis na serwerze (widoczne na obu komputerach).</label>
+            <div id="productsList" class="list-group" style="max-height: 520px; overflow:auto;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-8">
+        <div class="p-3 rounded border bg-white">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+            <div class="fw-semibold" id="selectedProductTitle">—</div>
+            <div class="d-flex gap-2">
+              <button id="toggleEditorBtn" type="button" class="btn btn-sm btn-outline-secondary">Edytuj</button>
+              <button id="saveEditorBtn" type="button" class="btn btn-sm btn-primary d-none">Zapisz</button>
+            </div>
+          </div>
+
+          <div id="viewerWrap">
+            <div id="boxesWrap" class="accordion"></div>
+            <div class="text-muted small mt-3">
+              OCR ze zdjęcia spisu części jest możliwy, ale wymaga osobnej integracji (OCR + dopasowanie formatu).
+            </div>
+          </div>
+
+          <div id="editorWrap" class="d-none">
+            <div class="text-muted small mb-2">
+              Edytujesz JSON. Struktura: <code>{"products":[{"name":"...","boxes":[{"name":"Karton 1/4","parts":["..."]}]}]}</code>
+            </div>
+            <textarea id="jsonEditor" class="form-control" rows="18" spellcheck="false" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px;"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- pdfjs v3: stabilne global window.pdfjsLib (lepsza kompatybilność) -->
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+(() => {
+  const productsList = document.getElementById('productsList');
+  const boxesWrap = document.getElementById('boxesWrap');
+  const selectedProductTitle = document.getElementById('selectedProductTitle');
+  const packSearch = document.getElementById('packSearch');
+  const toggleEditorBtn = document.getElementById('toggleEditorBtn');
+  const saveEditorBtn = document.getElementById('saveEditorBtn');
+  const viewerWrap = document.getElementById('viewerWrap');
+  const editorWrap = document.getElementById('editorWrap');
+  const jsonEditor = document.getElementById('jsonEditor');
+
+  const importFile = document.getElementById('importFile');
+  const importProductName = document.getElementById('importProductName');
+  const importOcrBtn = document.getElementById('importOcrBtn');
+  const importApplyBtn = document.getElementById('importApplyBtn');
+  const importClearBtn = document.getElementById('importClearBtn');
+  const importText = document.getElementById('importText');
+  const importStatus = document.getElementById('importStatus');
+  const importPreview = document.getElementById('importPreview');
+
+  let db = { products: [] };
+  let selectedIdx = -1;
+  let lastParsed = null;
+  let lastPackFilteredCount = 0;
+  let searchLogTimer = null;
+  let lastSearchKey = '';
+  let userSearchTriggered = false;
+
+  const escapeHtml = (value) => (value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+  const fetchDb = async () => {
+    const res = await fetch('/api/kartony');
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Nie udało się pobrać danych');
+    db = data.data || { products: [] };
+    jsonEditor.value = JSON.stringify(db, null, 2);
+  };
+
+  const normalizeLines = (text) => {
+    return (text || '')
+      .replaceAll('\r', '\n')
+      .split('\n')
+      .map(l => l.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+  };
+
+  const parseKartonyText = (text) => {
+    const lines = normalizeLines(text);
+    const boxRe = /(?:^|\b)(karton)\s*([0-9]{1,2})\s*(?:\/|\-|\s+z\s+)\s*([0-9]{1,2})(?:\b|$)/i;
+    const boxes = [];
+    let current = null;
+
+    for (const raw of lines) {
+      const m = raw.match(boxRe);
+      if (m) {
+        const idx = Number(m[2]);
+        const total = Number(m[3]);
+        current = { name: `Karton ${idx}/${total}`, parts: [] };
+        boxes.push(current);
+        continue;
+      }
+      if (!current) continue;
+      let part = raw
+        .replace(/^[•\-\–\—]\s*/g, '')
+        .replace(/^\d+\.\s*/g, '')
+        .trim();
+      if (!part) continue;
+      // odfiltruj bardzo krótkie "śmieci" z OCR
+      if (part.length <= 1) continue;
+      current.parts.push(part);
+    }
+
+    // produkt: pierwsza linia przed pierwszym kartonem (jeśli wygląda sensownie)
+    let productName = '';
+    if (lines.length) {
+      const firstBoxIdx = lines.findIndex(l => boxRe.test(l));
+      const headerCandidates = (firstBoxIdx === -1 ? lines : lines.slice(0, firstBoxIdx))
+        .filter(l => !/^(spis|zestaw|instrukcja|lista)\b/i.test(l));
+      productName = headerCandidates[0] || '';
+      if (productName && productName.length > 80) productName = '';
+    }
+
+    return { productName, boxes };
+  };
+
+  const renderImportPreview = (parsed) => {
+    if (!parsed || !parsed.boxes || !parsed.boxes.length) {
+      importPreview.innerHTML = '<div class="text-muted small">Nie wykryto nagłówków „Karton X/Y”.</div>';
+      return;
+    }
+    importPreview.innerHTML = `
+      <div class="small mb-1"><b>${escapeHtml(parsed.productName || importProductName.value || '—')}</b></div>
+      ${parsed.boxes.map(b => `
+        <div class="mb-2">
+          <div class="small fw-semibold">${escapeHtml(b.name)} <span class="text-muted fw-normal">(${(b.parts||[]).length})</span></div>
+          <ul class="mb-0 small">
+            ${(b.parts||[]).slice(0, 8).map(p => `<li>${escapeHtml(p)}</li>`).join('')}
+            ${(b.parts||[]).length > 8 ? `<li class="text-muted">… +${(b.parts||[]).length - 8} więcej</li>` : ''}
+          </ul>
+        </div>
+      `).join('')}
+    `;
+  };
+
+  const setImportStatus = (msg) => {
+    importStatus.textContent = msg || '';
+  };
+
+  const ocrImageFile = async (file) => {
+    const url = URL.createObjectURL(file);
+    try {
+      setImportStatus('OCR: przygotowuję obraz…');
+      const img = new Image();
+      img.src = url;
+      await new Promise((res, rej) => {
+        img.onload = () => res();
+        img.onerror = (e) => rej(new Error('Nie udało się wczytać obrazu'));
+      });
+      const scale = 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.floor(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.floor(img.naturalHeight * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      setImportStatus('OCR: rozpoznaję tekst…');
+      const result = await Tesseract.recognize(canvas, 'pol+eng');
+      return (result && result.data && result.data.text) ? result.data.text : '';
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const ocrPdfFile = async (file) => {
+    if (!window.pdfjsLib) throw new Error('Brak pdfjsLib');
+    // worker z CDN
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    let out = '';
+    for (let p = 1; p <= pdf.numPages; p++) {
+      setImportStatus(`OCR PDF: strona ${p}/${pdf.numPages}…`);
+      const page = await pdf.getPage(p);
+      const viewport = page.getViewport({ scale: 2.0 });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const result = await Tesseract.recognize(canvas, 'pol+eng');
+      const text = (result && result.data && result.data.text) ? result.data.text : '';
+      out += `\n\n--- STRONA ${p}/${pdf.numPages} ---\n` + text;
+    }
+    return out.trim();
+  };
+
+  const saveProductField = async (productIdx, field, value) => {
+    const products = Array.isArray(db.products) ? db.products : [];
+    const p = products[productIdx];
+    if (!p) return;
+    p[field] = value;
+    try {
+      const res = await fetch('/api/kartony', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: db }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Nie udało się zapisać');
+      renderProducts();
+    } catch (err) {
+      alert(err.message || 'Błąd zapisu');
+      renderProducts();
+    }
+  };
+
+  const renderProducts = () => {
+    const q = (packSearch.value || '').toLowerCase().trim();
+    const products = Array.isArray(db.products) ? db.products : [];
+    const filtered = !q ? products : products.filter(p => JSON.stringify(p).toLowerCase().includes(q));
+    lastPackFilteredCount = filtered.length;
+    productsList.innerHTML = filtered.map((p) => {
+      const realIdx = products.indexOf(p);
+      const isActive = realIdx === selectedIdx;
+      const hasInstruction = p.has_instruction === true;
+      const tomeck = p.tomek === true;
+      const pdfFile = (p.pdf_file != null && p.pdf_file !== '') ? String(p.pdf_file) : '';
+      return `
+        <div class="list-group-item list-group-item-action d-flex align-items-center gap-2 ${isActive ? 'active' : ''}" data-idx="${realIdx}" role="button" tabindex="0">
+          <div class="form-check form-check-inline mb-0 flex-shrink-0" title="Tomek" data-stop="1">
+            <input class="form-check-input" type="checkbox" ${tomeck ? 'checked' : ''} data-idx="${realIdx}" data-field="tomek" aria-label="Tomek">
+            <label class="form-check-label small ${isActive ? 'text-white' : ''}">Tomek</label>
+          </div>
+          <div class="flex-shrink-0" style="width: 90px;" data-stop="1">
+            <input type="text" class="form-control form-control-sm pdf-file-input" placeholder="PDF" value="${escapeHtml(pdfFile)}" data-idx="${realIdx}" title="Plik PDF">
+          </div>
+          <div class="form-check form-check-inline mb-0 flex-shrink-0" title="Czy jest instrukcja" data-stop="1">
+            <input class="form-check-input" type="checkbox" ${hasInstruction ? 'checked' : ''} data-idx="${realIdx}" data-field="has_instruction" aria-label="Instrukcja">
+            <label class="form-check-label small ${isActive ? 'text-white' : ''}">Instrukcja</label>
+          </div>
+          <div class="flex-grow-1 min-width-0" data-select="1">
+            <div class="fw-medium">${escapeHtml(p.name || '—')}</div>
+            <div class="small ${isActive ? 'text-white-50' : 'text-muted'}">${(p.boxes || []).length} kart.</div>
+          </div>
+        </div>
+      `;
+    }).join('') || '<div class="text-muted small p-2">Brak produktów.</div>';
+  };
+
+  const renderBoxes = () => {
+    const products = Array.isArray(db.products) ? db.products : [];
+    const product = products[selectedIdx];
+    if (!product) {
+      selectedProductTitle.textContent = '—';
+      boxesWrap.innerHTML = '<div class="text-muted small">Wybierz produkt po lewej.</div>';
+      return;
+    }
+    selectedProductTitle.textContent = product.name || '—';
+    const boxes = Array.isArray(product.boxes) ? product.boxes : [];
+    boxesWrap.innerHTML = boxes.map((b, i) => {
+      const parts = Array.isArray(b.parts) ? b.parts : [];
+      return `
+        <div class="accordion-item">
+          <h2 class="accordion-header" id="box-h-${i}">
+            <button class="accordion-button ${i === 0 ? '' : 'collapsed'}" type="button" data-bs-toggle="collapse" data-bs-target="#box-c-${i}">
+              ${escapeHtml(b.name || `Karton ${i+1}`)} <span class="ms-2 text-muted small">(${parts.length} części)</span>
+            </button>
+          </h2>
+          <div id="box-c-${i}" class="accordion-collapse collapse ${i === 0 ? 'show' : ''}" data-bs-parent="#boxesWrap">
+            <div class="accordion-body">
+              <ul class="mb-0">
+                ${parts.map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-muted">Brak części</li>'}
+              </ul>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('') || '<div class="text-muted small">Brak kartonów dla tego produktu.</div>';
+  };
+
+  productsList.addEventListener('click', (e) => {
+    if (e.target.closest('[data-stop]')) return;
+    const row = e.target.closest('[data-idx]');
+    if (!row) return;
+    selectedIdx = Number(row.dataset.idx);
+    renderProducts();
+    renderBoxes();
+  });
+
+  productsList.addEventListener('change', (e) => {
+    const cb = e.target.closest('input[type="checkbox"][data-idx][data-field]');
+    if (!cb) return;
+    const idx = Number(cb.dataset.idx);
+    const field = cb.dataset.field;
+    const value = field === 'tomek' || field === 'has_instruction' ? cb.checked : cb.value;
+    saveProductField(idx, field, value);
+  });
+
+  productsList.addEventListener('blur', (e) => {
+    const input = e.target.closest('input.pdf-file-input[data-idx]');
+    if (!input) return;
+    const idx = Number(input.dataset.idx);
+    saveProductField(idx, 'pdf_file', (input.value || '').trim());
+  }, true);
+  productsList.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const input = e.target.closest('input.pdf-file-input[data-idx]');
+    if (!input) return;
+    input.blur();
+  });
+
+  packSearch.addEventListener('input', () => {
+    userSearchTriggered = true;
+    renderProducts();
+    const query = (packSearch.value || '').trim();
+    if (!userSearchTriggered) return;
+    const key = query || '-';
+    if (key === lastSearchKey) return;
+    lastSearchKey = key;
+    if (searchLogTimer) clearTimeout(searchLogTimer);
+    searchLogTimer = setTimeout(() => {
+      const details = `module=kartony query=${query || '-'} results=${lastPackFilteredCount}`;
+      fetch('/api/event-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'search', details })
+      }).catch(() => {});
+    }, 800);
+  });
+
+  toggleEditorBtn.addEventListener('click', () => {
+    const isEditor = !editorWrap.classList.contains('d-none');
+    if (isEditor) {
+      editorWrap.classList.add('d-none');
+      viewerWrap.classList.remove('d-none');
+      saveEditorBtn.classList.add('d-none');
+      toggleEditorBtn.textContent = 'Edytuj';
+    } else {
+      editorWrap.classList.remove('d-none');
+      viewerWrap.classList.add('d-none');
+      saveEditorBtn.classList.remove('d-none');
+      toggleEditorBtn.textContent = 'Podgląd';
+      jsonEditor.value = JSON.stringify(db, null, 2);
+    }
+  });
+
+  saveEditorBtn.addEventListener('click', async () => {
+    try {
+      const next = JSON.parse(jsonEditor.value);
+      const res = await fetch('/api/kartony', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: next }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Nie udało się zapisać');
+      db = next;
+      toggleEditorBtn.click();
+      renderProducts();
+      renderBoxes();
+    } catch (err) {
+      alert(err.message || 'Błąd');
+    }
+  });
+
+  (async () => {
+    await fetchDb();
+    renderProducts();
+    renderBoxes();
+  })().catch((e) => alert(e.message || 'Błąd'));
+
+  importClearBtn.addEventListener('click', () => {
+    importFile.value = '';
+    importProductName.value = '';
+    importText.value = '';
+    importPreview.innerHTML = '<div class="text-muted small">Wybierz plik i kliknij „Rozpoznaj (OCR)”.</div>';
+    importApplyBtn.disabled = true;
+    lastParsed = null;
+    setImportStatus('');
+  });
+
+  importOcrBtn.addEventListener('click', async () => {
+    const file = importFile.files && importFile.files[0];
+    if (!file) return alert('Wybierz plik PDF lub zdjęcie');
+    importApplyBtn.disabled = true;
+    lastParsed = null;
+    setImportStatus('');
+    importPreview.innerHTML = '<div class="text-muted small">Pracuję…</div>';
+    try {
+      importOcrBtn.disabled = true;
+      const isPdf = (file.type === 'application/pdf') || (file.name || '').toLowerCase().endsWith('.pdf');
+      const text = isPdf ? await ocrPdfFile(file) : await ocrImageFile(file);
+      importText.value = text || '';
+      const parsed = parseKartonyText(text || '');
+      if (!importProductName.value && parsed.productName) importProductName.value = parsed.productName;
+      lastParsed = parsed;
+      renderImportPreview(parsed);
+      importApplyBtn.disabled = !(parsed && parsed.boxes && parsed.boxes.length);
+      setImportStatus('Gotowe: OCR zakończony.');
+    } catch (e) {
+      setImportStatus('');
+      importPreview.innerHTML = '<div class="text-danger small">OCR nie powiódł się.</div>';
+      alert(e.message || 'Błąd OCR');
+    } finally {
+      importOcrBtn.disabled = false;
+    }
+  });
+
+  importApplyBtn.addEventListener('click', async () => {
+    if (!lastParsed || !lastParsed.boxes || !lastParsed.boxes.length) return;
+    const name = (importProductName.value || lastParsed.productName || '').trim();
+    if (!name) return alert('Uzupełnij nazwę produktu');
+    try {
+      setImportStatus('Zapisuję…');
+      // pobierz świeże dane
+      const res = await fetch('/api/kartony');
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Nie udało się pobrać bazy');
+      const next = data.data || { products: [] };
+      next.products = Array.isArray(next.products) ? next.products : [];
+      const existingIdx = next.products.findIndex(p => (p.name || '').toLowerCase().trim() === name.toLowerCase().trim());
+      const product = { name, boxes: lastParsed.boxes };
+      if (existingIdx >= 0) next.products[existingIdx] = product;
+      else next.products.push(product);
+
+      const put = await fetch('/api/kartony', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: next }),
+      });
+      const putData = await put.json();
+      if (!put.ok || !putData.success) throw new Error(putData.error || 'Nie udało się zapisać');
+
+      // odśwież UI
+      db = next;
+      jsonEditor.value = JSON.stringify(db, null, 2);
+      renderProducts();
+      // ustaw selekcję na nowy/zmieniony produkt
+      selectedIdx = next.products.findIndex(p => (p.name || '').toLowerCase().trim() === name.toLowerCase().trim());
+      renderProducts();
+      renderBoxes();
+      setImportStatus('Zapisano.');
+    } catch (e) {
+      setImportStatus('');
+      alert(e.message || 'Błąd zapisu');
+    }
+  });
+})();
+</script>
+{% endblock %}
+

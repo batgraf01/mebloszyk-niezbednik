@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dostępność produktów</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@200;300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="static/style.css">
+    <style>
+        body {
+            background: var(--bg-body, #edf0f5);
+        }
+    </style>
+</head>
+<body>
+<main class="app-content product-app">
+    <section class="panel product-panel">
+        <header class="product-header">
+            <div class="header-title-row">
+                <p class="eyebrow">Stan magazynowy</p>
+                <p class="updated-info">
+                    Ostatnia aktualizacja: <span id="updated-at">-</span>
+                </p>
+            </div>
+            <div class="product-controls">
+                <label class="search-wrapper">
+                    <i class="bi bi-search"></i>
+                    <input type="search" id="search" placeholder="Szukaj po nazwie, SKU lub EAN..." autocomplete="off">
+                </label>
+                <div class="control-actions">
+                    <button id="refresh-btn" class="btn btn-primary">
+                        <i class="bi bi-arrow-clockwise"></i> Aktualizuj
+                    </button>
+                    <a id="sheet-link" class="btn btn-secondary" target="_blank" rel="noopener">
+                        <i class="bi bi-box-arrow-up-right"></i> Otwórz arkusz
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <div id="alert" class="alert alert-error" style="display:none;"></div>
+
+        <section class="products-column single-column">
+            <div class="column-header">
+                <h2>Produkty</h2>
+                <p class="muted">Najpierw kluczowe grupy, potem pozostałe pozycje alfabetycznie.</p>
+            </div>
+            <div id="priority-groups" class="product-groups"></div>
+            <div id="all-products" class="product-groups"></div>
+        </section>
+    </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script>
+    // Bezpośredni link do Google Sheets w formacie CSV (działa bez backendu)
+    const GOOGLE_SHEET_ID = '1qN8sUUUXv1PXjjVLoEwhCeoTI5XDUQzC4gHQLNkhvhg';
+    const GOOGLE_SHEET_GID = '0';
+    const CSV_URL = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=csv&gid=${GOOGLE_SHEET_GID}`;
+
+    const alertBox = document.getElementById("alert");
+    const sheetLink = document.getElementById("sheet-link");
+    const searchInput = document.getElementById("search");
+    const refreshBtn = document.getElementById("refresh-btn");
+    const updatedAt = document.getElementById("updated-at");
+    const priorityContainer = document.getElementById("priority-groups");
+    const restContainer = document.getElementById("all-products");
+
+    sheetLink.href = `https://docs.google.com/spreadsheets/d/1qN8sUUUXv1PXjjVLoEwhCeoTI5XDUQzC4gHQLNkhvhg/edit#gid=0`;
+
+    let allProducts = [];
+    let filteredProducts = [];
+
+    function normalizeText(value) {
+        return (value ?? "")
+            .toString()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, " ")
+            .trim();
+    }
+
+    const PRIORITY_GROUPS = [
+        { id: "pergole_skyline", label: "Pergole Skyline", keywords: ["pergola skyline", "skyline"] },
+        { id: "pergole_mirador", label: "Pergole Mirador", keywords: ["pergola mirador", "mirador"] },
+        { id: "rolety", label: "Rolety", keywords: ["roleta", "rolety"] },
+        { id: "zaluzje", label: "Żaluzje", keywords: ["zaluzja", "zaluzje", "żaluzja", "żaluzje"] },
+        { id: "domki_thor", label: "Domki Thor", keywords: ["thor"] },
+        { id: "domki_magni", label: "Domki Magni", keywords: ["magni"] },
+    ].map(group => ({
+        ...group,
+        keywords: group.keywords.map(normalizeText).filter(Boolean),
+    }));
+
+    function escapeHtml(value) {
+        const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" };
+        return (value ?? "").replace(/[&<>"']/g, (char) => map[char]);
+    }
+
+    function formatStock(rawValue, unit) {
+        const fallbackUnit = unit && unit.trim() ? unit.trim() : "szt";
+        const normalized = (rawValue ?? "").toString().replace(",", ".");
+        const numeric = Number.parseFloat(normalized);
+        if (Number.isFinite(numeric)) {
+            const display = Number.isInteger(numeric) ? numeric : numeric.toFixed(2).replace(/\.00$/, "");
+            return `${display} ${fallbackUnit}`;
+        }
+        return `${rawValue || 0} ${fallbackUnit}`;
+    }
+
+    function toProduct(row) {
+        const name = row["Nazwa"]?.trim() || "Bez nazwy";
+        const sku = row["Kod"]?.trim() || "";
+        const ean = row["EAN"]?.trim() || "";
+        const unit = row["jm"]?.trim() || "szt";
+        const stockRaw = row["Stan"] ?? row["stan"] ?? row["STAN"] ?? "0";
+        const normalized = normalizeText(`${name} ${sku} ${ean}`);
+        return {
+            id: `${sku}-${ean}-${name}`.trim(),
+            name,
+            sku,
+            ean,
+            unit,
+            stockRaw,
+            stockLabel: formatStock(stockRaw, unit),
+            normalized,
+            normalizedCompact: normalized.replace(/\s+/g, ""),
+        };
+    }
+
+    function groupProducts(products) {
+        const groups = PRIORITY_GROUPS.map((group) => ({
+            ...group,
+            items: products.filter((product) =>
+                group.keywords.some((keyword) => keyword && product.normalized.includes(keyword))
+            ),
+        }));
+
+        const groupedIds = new Set(groups.flatMap((group) => group.items.map((item) => item.id)));
+        const rest = products.filter((product) => !groupedIds.has(product.id));
+
+        return { groups, rest };
+    }
+
+    function renderProductLine(product) {
+        const isOut = Number.parseFloat(product.stockRaw.toString().replace(",", ".")) <= 0;
+        const stateClass = isOut ? "product-line is-empty" : "product-line";
+        const skuLabel = product.sku ? product.sku : "brak";
+        const eanLabel = product.ean ? product.ean : "brak";
+
+        return `
+            <div class="${stateClass}">
+                <span class="product-stock">${escapeHtml(product.stockLabel)}</span>
+                <span class="product-name">${escapeHtml(product.name)}</span>
+                <span class="product-meta product-meta--stack">
+                    <span>ean: <strong>${escapeHtml(eanLabel)}</strong></span>
+                    <span>sku: <strong>${escapeHtml(skuLabel)}</strong></span>
+                </span>
+            </div>
+        `;
+    }
+
+    function renderGroups(groups, container) {
+        if (!groups.length) {
+            container.innerHTML = `<p class="empty-state">Brak produktów do wyświetlenia.</p>`;
+            return;
+        }
+
+        container.innerHTML = groups
+            .map((group) => {
+                if (!group.items.length) {
+                    return `
+                        <article class="product-group" data-group="${group.id}">
+                            <h3 class="group-title">${escapeHtml(group.label)}</h3>
+                            <p class="empty-state">Brak wyników w tej kategorii.</p>
+                        </article>
+                    `;
+                }
+
+                const items = group.items
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name, "pl"))
+                    .map(renderProductLine)
+                    .join("");
+
+                return `
+                    <article class="product-group" data-group="${group.id}">
+                        <h3 class="group-title">${escapeHtml(group.label)}</h3>
+                        <div class="product-list">
+                            ${items}
+                        </div>
+                    </article>
+                `;
+            })
+            .join("");
+    }
+
+    function renderRest(products) {
+        if (!products.length) {
+            restContainer.innerHTML = `<p class="empty-state">Wszystkie produkty z prawej kolumny spełniają aktualny filtr.</p>`;
+            return;
+        }
+
+        restContainer.innerHTML = `
+            <article class="product-group">
+                <div class="product-list">
+                    ${products.map(renderProductLine).join("")}
+                </div>
+            </article>
+        `;
+    }
+
+    function renderProducts() {
+        const { groups, rest } = groupProducts(filteredProducts);
+        renderGroups(groups, priorityContainer);
+        renderRest(
+            rest.slice().sort((a, b) => a.name.localeCompare(b.name, "pl"))
+        );
+    }
+
+    function hideError() {
+        alertBox.style.display = "none";
+        alertBox.textContent = "";
+    }
+
+    function showError(message) {
+        alertBox.style.display = "flex";
+        alertBox.innerHTML = `<i class="bi bi-exclamation-triangle"></i>${message}`;
+    }
+
+    function setLoading(isLoading) {
+        refreshBtn.disabled = isLoading;
+        refreshBtn.classList.toggle("is-loading", isLoading);
+        if (isLoading) {
+            refreshBtn.innerHTML = `<i class="bi bi-arrow-clockwise"></i> Ładowanie...`;
+        } else {
+            refreshBtn.innerHTML = `<i class="bi bi-arrow-clockwise"></i> Aktualizuj`;
+        }
+    }
+
+    function applySearch(term) {
+        const normalized = normalizeText(term);
+        const tokens = normalized.split(/\s+/).filter(Boolean);
+        const compact = normalized.replace(/\s+/g, "");
+
+        if (!tokens.length) {
+            filteredProducts = [...allProducts];
+            renderProducts();
+            return;
+        }
+
+        filteredProducts = allProducts.filter((product) =>
+            tokens.every((token) =>
+                product.normalized.includes(token) ||
+                product.normalizedCompact.includes(token.replace(/\s+/g, ""))
+            ) || (compact && product.normalizedCompact.includes(compact))
+        );
+
+        renderProducts();
+    }
+
+    async function loadProducts(force = false) {
+        if (refreshBtn.disabled && !force) {
+            return;
+        }
+
+        setLoading(true);
+        hideError();
+
+        try {
+            const response = await fetch(CSV_URL, { cache: "no-store" });
+            if (!response.ok) {
+                throw new Error("Nie udało się pobrać arkusza.");
+            }
+            const text = await response.text();
+            const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+            allProducts = (parsed.data || [])
+                .filter((row) => row["Nazwa"] || row["Kod"])
+                .map(toProduct);
+            filteredProducts = [...allProducts];
+            renderProducts();
+            updatedAt.textContent = new Date().toLocaleString("pl-PL", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+            });
+        } catch (error) {
+            console.error(error);
+            showError("Nie udało się pobrać danych z arkusza.");
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    refreshBtn.addEventListener("click", () => loadProducts(true));
+    searchInput.addEventListener("input", (event) => applySearch(event.target.value));
+
+    loadProducts(true);
+</script>
+</body>
+</html>
+

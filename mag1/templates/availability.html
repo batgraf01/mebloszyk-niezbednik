@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Dostępność produktów{% endblock %}
+
+{% block content %}
+<section class="availability-page">
+    <div class="panel availability-panel">
+        <header class="availability-header">
+            <div>
+                <p class="eyebrow">Stan magazynowy</p>
+                <h1>Dostępność produktów</h1>
+                <p class="muted">
+                    Dane są pobierane bezpośrednio z arkusza Google i odświeżają się co kilka minut.
+                </p>
+            </div>
+            <a href="https://docs.google.com/spreadsheets/d/{{ sheet_id }}/edit#gid={{ sheet_gid }}" target="_blank" rel="noopener" class="btn btn-primary">
+                <i class="bi bi-box-arrow-up-right"></i> Otwórz arkusz
+            </a>
+        </header>
+
+        {% if error %}
+            <div class="alert alert-error">
+                <i class="bi bi-exclamation-triangle"></i>
+                {{ error }}
+            </div>
+        {% else %}
+            {% if rows %}
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                        <tr>
+                            {% for header in headers %}
+                                <th>{{ header }}</th>
+                            {% endfor %}
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for row in rows %}
+                            <tr>
+                                {% for header in headers %}
+                                    <td>{{ row.get(header, "") }}</td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="muted">Arkusz nie zawiera żadnych danych.</p>
+            {% endif %}
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

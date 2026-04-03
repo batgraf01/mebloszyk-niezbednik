@@ -1,0 +1,419 @@
+{% extends "base_panel.html" %}
+{% block title %}Magazyn{% endblock %}
+
+{% block content %}
+<div class="card page-rozmiary">
+  <div class="card-body">
+    <div class="d-flex flex-wrap align-items-center justify-content-center gap-3 mb-4">
+      <small class="text-muted me-2">Ostatnia aktualizacja: <span id="updatedAt">-</span></small>
+      <div class="input-group search-group" style="min-width: 360px; max-width: 520px;">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input id="searchInput" type="search" class="form-control search-input" placeholder="Szukaj po nazwie, kodzie, EAN, wymiarach..." autocomplete="off">
+      </div>
+      <button id="refreshBtn" class="btn btn-primary btn-search"><i class="bi bi-arrow-clockwise"></i> Odśwież</button>
+    </div>
+
+    <div id="alertBox" class="alert alert-danger d-none" role="alert"></div>
+
+    <div class="row g-3">
+      <div class="col-12 col-lg-6">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead class="visually-hidden">
+              <tr>
+                <th>Kod</th><th>EAN</th><th>Nazwa</th><th>Stan</th>
+              </tr>
+            </thead>
+            <tbody id="inventoryBodyLeft">
+              <tr><td colspan="4" class="loader-cell"><div class="loader-dots" aria-label="Ładowanie">
+                <svg width="120" height="30" viewBox="0 0 120 30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                  <circle cx="15" cy="15" r="6" fill="#4285F4">
+                    <animate id="c1" attributeName="r" begin="0s;c4.end" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+                  </circle>
+                  <circle cx="45" cy="15" r="6" fill="#EA4335">
+                    <animate id="c2" attributeName="r" begin="c1.end-0.3s" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+                  </circle>
+                  <circle cx="75" cy="15" r="6" fill="#34A853">
+                    <animate id="c3" attributeName="r" begin="c2.end-0.3s" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+                  </circle>
+                  <circle cx="105" cy="15" r="6" fill="#FBBC05">
+                    <animate id="c4" attributeName="r" begin="c3.end-0.3s" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+                  </circle>
+                </svg>
+              </div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="col-12 col-lg-6">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead class="visually-hidden">
+              <tr>
+                <th>Kod</th><th>EAN</th><th>Nazwa</th><th>Stan</th>
+              </tr>
+            </thead>
+            <tbody id="inventoryBodyRight">
+              <tr><td colspan="4" class="loader-cell"><div class="loader-dots" aria-label="Ładowanie">
+                <svg width="120" height="30" viewBox="0 0 120 30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                  <circle cx="15" cy="15" r="6" fill="#4285F4">
+                    <animate id="c1" attributeName="r" begin="0s;c4.end" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+                  </circle>
+                  <circle cx="45" cy="15" r="6" fill="#EA4335">
+                    <animate id="c2" attributeName="r" begin="c1.end-0.3s" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+                  </circle>
+                  <circle cx="75" cy="15" r="6" fill="#34A853">
+                    <animate id="c3" attributeName="r" begin="c2.end-0.3s" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+                  </circle>
+                  <circle cx="105" cy="15" r="6" fill="#FBBC05">
+                    <animate id="c4" attributeName="r" begin="c3.end-0.3s" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+                  </circle>
+                </svg>
+              </div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-center align-items-center gap-2 mt-3">
+      <button id="prevPage" class="btn btn-primary btn-sm" aria-label="Poprzednia strona">‹</button>
+      <div id="pageInfo" class="text-muted small">-</div>
+      <button id="nextPage" class="btn btn-primary btn-sm" aria-label="Następna strona">›</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const alertBox = document.getElementById('alertBox');
+  const copyToast = document.getElementById('copyToast');
+  const updatedAt = document.getElementById('updatedAt');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const searchInput = document.getElementById('searchInput');
+  const tableBodyLeft = document.getElementById('inventoryBodyLeft');
+  const tableBodyRight = document.getElementById('inventoryBodyRight');
+  const pageInfo = document.getElementById('pageInfo');
+  const prevPage = document.getElementById('prevPage');
+  const nextPage = document.getElementById('nextPage');
+
+  let items = [];
+  let filteredItems = [];
+  let currentPage = 1;
+  const pageSize = 50;
+
+  const normalize = (text) => (text || '')
+    .toString()
+    .replace(/×/g, 'x')
+    .toLowerCase()
+    .replace(/[^a-z0-9x]+/g, ' ')
+    .trim();
+
+  const tokenize = (text) => normalize(text).split(/\s+/).filter(Boolean);
+
+  const matches = (item, query) => {
+    if (!query) return true;
+    const tokens = tokenize(query);
+    if (!tokens.length) return true;
+
+    const haystack = [
+      item.name, item.code, item.ean,
+      item.name.replace(/\s+/g, ''),
+    ].map(normalize).join(' ');
+
+    return tokens.every(tok => haystack.includes(tok));
+  };
+
+  const formatStock = (raw) => {
+    const num = parseFloat((raw || '').toString().replace(',', '.'));
+    if (Number.isFinite(num)) {
+      return Number.isInteger(num) ? num.toString() : num.toFixed(2).replace(/\.00$/, '');
+    }
+    return raw || '0';
+  };
+
+  const formatUnit = (raw) => {
+    const u = (raw || '').toString().trim().toLowerCase();
+    if (!u) return '';
+    if (u === 'm2' || u === 'm²') return 'm2';
+    if (u.startsWith('opak')) return 'op.';
+    return u;
+  };
+
+  const renderPage = () => {
+    const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+    if (currentPage > totalPages) currentPage = totalPages;
+    const start = (currentPage - 1) * pageSize;
+    const end = start + pageSize;
+    const pageItems = filteredItems.slice(start, end);
+
+    pageInfo.textContent = `${currentPage}/${totalPages}`;
+    prevPage.disabled = currentPage === 1;
+    nextPage.disabled = currentPage === totalPages;
+
+    const list = pageItems;
+    if (!list.length) {
+      const emptyRow = '<tr><td colspan="4" class="text-center text-muted py-4">Brak wyników</td></tr>';
+      tableBodyLeft.innerHTML = emptyRow;
+      tableBodyRight.innerHTML = emptyRow;
+      return;
+    }
+    const leftRows = [];
+    const rightRows = [];
+    list.forEach((item, idx) => {
+      const isOut = parseFloat((item.stock || '0').toString().replace(',', '.')) <= 0;
+      const rowClass = isOut ? 'row-zero' : '';
+      const code = item.code || '';
+      const ean = item.ean || '';
+      const hasCode = Boolean(code.trim());
+      const hasEan = Boolean(ean.trim());
+      const pills = `
+        ${hasCode ? `<button type="button" class="pill pill-sku copy-pill" data-bs-toggle="tooltip" data-bs-title="${code}" data-value="${code}" aria-label="Kopiuj SKU">SKU</button>` : ''}
+        ${hasEan ? `<button type="button" class="pill pill-ean copy-pill" data-bs-toggle="tooltip" data-bs-title="${ean}" data-value="${ean}" aria-label="Kopiuj EAN">EAN</button>` : ''}
+      `.trim() || '<span class="text-muted small">brak</span>';
+      const row = `
+        <tr class="${rowClass}">
+          <td class="${isOut ? 'text-zero' : ''}">${item.name || ''}</td>
+          <td class="fw-semibold ${isOut ? 'text-zero' : 'stock-positive'} text-end">${formatStock(item.stock)} ${formatUnit(item.unit)}</td>
+          <td class="copy-cell">${pills}</td>
+        </tr>
+      `;
+      if (idx % 2 === 0) leftRows.push(row); else rightRows.push(row);
+    });
+    tableBodyLeft.innerHTML = leftRows.join('') || '<tr><td colspan="4" class="text-center text-muted py-4">Brak wyników</td></tr>';
+    tableBodyRight.innerHTML = rightRows.join('') || '<tr><td colspan="4" class="text-center text-muted py-4">Brak wyników</td></tr>';
+
+    // tooltips i kopiowanie
+    const pills = document.querySelectorAll('.copy-pill');
+    pills.forEach(p => {
+      const value = p.getAttribute('data-value') || '';
+      if (value) {
+        if (window.bootstrap && bootstrap.Tooltip) {
+          new bootstrap.Tooltip(p);
+        }
+        p.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(value);
+            showCopyToast(`Skopiowano: ${value}`);
+          } catch (e) {
+            showCopyToast('Nie udało się skopiować');
+          }
+        });
+      }
+    });
+  };
+
+  const setAlert = (msg) => {
+    if (!msg) {
+      alertBox.classList.add('d-none');
+      alertBox.textContent = '';
+      return;
+    }
+    alertBox.textContent = msg;
+    alertBox.classList.remove('d-none');
+  };
+
+  const formatUpdatedAt = (iso) => {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const pad = (n) => n.toString().padStart(2, '0');
+    return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const applyFilter = () => {
+    const q = searchInput.value.trim();
+    filteredItems = items.filter(it => matches(it, q));
+    currentPage = 1;
+    renderPage();
+    scheduleSearchLog(q);
+  };
+
+  let searchLogTimer = null;
+  let lastSearchKey = '';
+  let userSearchTriggered = false;
+  const scheduleSearchLog = (query) => {
+    if (!userSearchTriggered) return;
+    const key = query || '-';
+    if (key === lastSearchKey) return;
+    lastSearchKey = key;
+    if (searchLogTimer) {
+      clearTimeout(searchLogTimer);
+    }
+    searchLogTimer = setTimeout(() => {
+      const details = `module=magazyn query=${query || '-'} results=${filteredItems.length}`;
+      fetch('/api/event-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'search', details })
+      }).catch(() => {});
+    }, 800);
+  };
+
+  const loadData = async () => {
+    setAlert('');
+    const loadingRow = `
+      <tr><td colspan="4" class="loader-cell">
+        <div class="loader-dots" aria-label="Ładowanie">
+          <svg width="120" height="30" viewBox="0 0 120 30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+            <circle cx="15" cy="15" r="6" fill="#4285F4">
+              <animate id="c1" attributeName="r" begin="0s;c4.end" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+            </circle>
+            <circle cx="45" cy="15" r="6" fill="#EA4335">
+              <animate id="c2" attributeName="r" begin="c1.end-0.3s" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+            </circle>
+            <circle cx="75" cy="15" r="6" fill="#34A853">
+              <animate id="c3" attributeName="r" begin="c2.end-0.3s" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+            </circle>
+            <circle cx="105" cy="15" r="6" fill="#FBBC05">
+              <animate id="c4" attributeName="r" begin="c3.end-0.3s" dur="0.6s" values="6;10;6" keyTimes="0;0.5;1" />
+            </circle>
+          </svg>
+        </div>
+      </td></tr>`;
+    tableBodyLeft.innerHTML = loadingRow;
+    tableBodyRight.innerHTML = loadingRow;
+    try {
+      const res = await fetch('/api/magazyn', {
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (!res.ok || !ct.includes('application/json')) {
+        throw new Error('Błąd pobierania danych (sesja mogła wygasnąć)');
+      }
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Nie udało się pobrać danych');
+      items = (data.items || []).map(it => ({
+        name: it.name || '',
+        code: it.code || '',
+        ean: it.ean || '',
+        unit: it.unit || '',
+        stock: it.stock || '0'
+      }));
+      updatedAt.textContent = formatUpdatedAt(data.updated_at);
+      filteredItems = items.slice();
+      currentPage = 1;
+      renderPage();
+    } catch (e) {
+      setAlert(e.message || 'Błąd ładowania danych');
+      console.error(e);
+    }
+  };
+
+  refreshBtn.addEventListener('click', loadData);
+  searchInput.addEventListener('input', () => {
+    userSearchTriggered = true;
+    applyFilter();
+  });
+  prevPage.addEventListener('click', () => { if (currentPage > 1) { currentPage -= 1; renderPage(); } });
+  nextPage.addEventListener('click', () => {
+    const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+    if (currentPage < totalPages) { currentPage += 1; renderPage(); }
+  });
+
+  function showCopyToast(msg) {
+    if (!copyToast) return;
+    copyToast.textContent = msg;
+    copyToast.classList.remove('d-none');
+    copyToast.classList.add('show');
+    setTimeout(() => {
+      copyToast.classList.remove('show');
+      copyToast.classList.add('d-none');
+    }, 1500);
+  }
+
+  loadData();
+})();
+</script>
+<style>
+  /* Styl dla produktów o zerowym stanie */
+  .row-zero {
+    background: #f3f4f6 !important;
+  }
+  .row-zero td,
+  .text-zero {
+    color: #9ca3af !important;
+    font-weight: 400 !important;
+  }
+  .stock-positive {
+    color: #0f6cbd !important;
+  }
+  .copy-cell {
+    display: flex;
+    gap: 6px;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  .pill {
+    border: none;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 400;
+    text-transform: uppercase;
+    line-height: 1.1;
+    color: #fff;
+  }
+  .pill-sku {
+    background: #828282;
+  }
+  .pill-ean {
+    background: #0f6cbd;
+  }
+  /* Odśwież — kolor brand */
+  .btn.btn-primary {
+    background: #0f6cbd;
+    border-color: #0f6cbd;
+  }
+  .btn.btn-primary:hover {
+    background: #0c5da8;
+    border-color: #0c5da8;
+  }
+  .copy-toast {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    background: rgba(33, 37, 41, 0.9);
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: 8px;
+    z-index: 9999;
+    transition: opacity 0.2s ease;
+  }
+  .copy-toast.d-none { display: none !important; }
+  .copy-toast.show { display: block !important; opacity: 1; }
+  .loader-cell {
+    text-align: center;
+    padding: 32px 0;
+  }
+  .loader-dots svg .dot {
+    fill: #0f6cbd;
+    opacity: 0.35;
+    animation: loaderDot 1s infinite ease-in-out;
+  }
+  .loader-dots .dot-1 { animation-delay: 0s; }
+  .loader-dots .dot-2 { animation-delay: 0.15s; }
+  .loader-dots .dot-3 { animation-delay: 0.3s; }
+  @keyframes loaderDot {
+    0%, 80%, 100% { opacity: 0.35; transform: scale(0.9); }
+    40% { opacity: 1; transform: scale(1.1); }
+  }
+  .search-group .input-group-text {
+    padding: 0.5rem 0.75rem;
+  }
+  .search-input {
+    font-size: 14px;
+    padding: 0.55rem 0.75rem;
+  }
+  .search-input::placeholder {
+    font-size: 12px;
+  }
+  .btn-search {
+    padding: 0.55rem 1rem;
+    font-size: 14px;
+    line-height: 1.2;
+  }
+</style>
+{% endblock %}

@@ -1,0 +1,864 @@
+{% extends "base_panel.html" %}
+{% block title %}Rozmiary produktów{% endblock %}
+
+{% block extra_css %}
+<style>
+  #searchInput::placeholder { font-size: 0.8em; opacity: 0.9; }
+  .sizes-manual-panel {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-top: 1px solid #e6e9ef;
+    font-size: 11px;
+  }
+  .sizes-manual-panel h6 {
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .sizes-manual-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  .sizes-manual-row input {
+    max-width: 75px;
+    font-size: 10px;
+    padding: 2px 4px;
+    height: 24px;
+  }
+  .sizes-manual-row input[name="name"] {
+    flex: 1;
+    max-width: none;
+  }
+  .sizes-manual-list {
+    max-height: 160px;
+    overflow-y: auto;
+    margin: 0;
+    padding-left: 18px;
+  }
+  .manual-delete-btn {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-size: 11px;
+    padding: 1px 4px;
+  }
+  .product-card {
+    position: relative;
+  }
+  #manualDeleteModal .modal-dialog {
+    max-width: 360px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <h5 class="mb-0" style="font-size: 1rem;">Generator rozmiarów z magazynu</h5>
+    <button id="btnGenToggle" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-chevron-down"></i> Pokaż
+    </button>
+  </div>
+  <div id="genPanelBody" class="card-body" style="display:none;">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label mb-1">Producent / dostawca</label>
+        <select id="genBrand" class="form-select form-select-sm">
+          <option value="">Wszyscy</option>
+          <option value="Nordvic">Nordvic</option>
+          <option value="Nordeck">Nordeck</option>
+          <option value="Mirador">Mirador</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label mb-1">Typ (słowo w nazwie)</label>
+        <input id="genType" class="form-control form-control-sm" placeholder="np. deska, sztacheta, pergola">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label mb-1">Filtr tekstowy</label>
+        <input id="genQuery" class="form-control form-control-sm" placeholder="fragment nazwy / kodu">
+      </div>
+      <div class="col-md-3 d-grid">
+        <button id="btnGenScan" class="btn btn-sm btn-outline-primary">
+          <i class="bi bi-search"></i> Skanuj magazyn
+        </button>
+    </div>
+    <div class="mt-3">
+      <small class="text-muted">
+        Z listy poniżej wybierasz wiersze, a przyciskiem „Dodaj” dopisujesz je do tabeli pomocniczej na dole.
+        Parametry: szerokość, wysokość, długość w cm oraz waga w kg.
+      </small>
+    </div>
+    <div class="table-responsive mt-3" style="max-height:280px;overflow:auto;">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Nazwa prosta</th>
+            <th>Szer. [cm]</th>
+            <th>Wys. [cm]</th>
+            <th>Dł. [cm]</th>
+            <th>Waga [kg]</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="genResultsBody">
+          <tr><td colspan="6" class="text-muted text-center">Użyj filtrów powyżej i kliknij „Skanuj magazyn”.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-3">
+      <h6>Wybrane rozmiary (do wklejenia / eksportu)</h6>
+      <div class="table-responsive" style="max-height:220px;overflow:auto;">
+        <table class="table table-sm table-striped mb-0">
+          <thead>
+            <tr>
+              <th>Nazwa</th>
+              <th>Szer. [cm]</th>
+              <th>Wys. [cm]</th>
+              <th>Dł. [cm]</th>
+              <th>Waga [kg]</th>
+            </tr>
+          </thead>
+          <tbody id="genSelectedBody">
+            <tr><td colspan="5" class="text-muted text-center">Brak pozycji.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card page-rozmiary">
+  <div class="card-body">
+    <div class="search-box">
+      <input type="text" id="searchInput" class="form-control" placeholder="Szukaj produktu... (np. Thor, Skyline, Roleta)" autocomplete="off">
+    </div>
+    
+    <div id="productsGrid" class="row g-3">
+      <!-- Produkty będą wstawione przez JavaScript -->
+    </div>
+    
+    <div id="noResults" class="no-results" style="display: none;">
+      <i class="bi bi-search" style="font-size: 3rem; opacity: 0.3;"></i>
+      <p class="mt-3">Nie znaleziono produktów</p>
+    </div>
+  </div>
+</div>
+
+<!-- Modal kasowania ręcznego rozmiaru -->
+<div class="modal fade" id="manualDeleteModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">Usuń ręcznie dodany rozmiar</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body py-3">
+        <p class="mb-0" id="manualDeleteText" style="font-size: 0.9rem;">
+          Czy na pewno chcesz usunąć ten kafelek?
+        </p>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+        <button type="button" class="btn btn-sm btn-danger" id="manualDeleteConfirmBtn">Usuń</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let GEN_INVENTORY = null;
+let GEN_SELECTED = [];
+let GEN_CURRENT_ROWS = [];
+let MANUAL_SIZES = [];
+let MANUAL_LABELS = new Set();
+let MANUAL_DELETE_LABEL = null;
+const MANUAL_STORAGE_KEY = 'niezbednik_manual_sizes_v1';
+
+function normalizeManualItems(items) {
+  const grouped = {};
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    if (!item) return;
+    const label = String(item.label || item.name || '').trim();
+    const name = String(item.name || item.label || '').trim();
+    if (!label || !name) return;
+    if (!grouped[label]) grouped[label] = { label, name, cartons: [] };
+    if (Array.isArray(item.cartons)) {
+      item.cartons.forEach((c) => {
+        const w = String(c?.w ?? '').trim();
+        const h = String(c?.h ?? '').trim();
+        const l = String(c?.l ?? '').trim();
+        const kg = String(c?.kg ?? '').trim();
+        if (w && h && l && kg) grouped[label].cartons.push({ w, h, l, kg });
+      });
+      return;
+    }
+    // Legacy format: one row represented one carton.
+    const w = String(item.w ?? '').trim();
+    const h = String(item.h ?? '').trim();
+    const l = String(item.l ?? '').trim();
+    const kg = String(item.kg ?? '').trim();
+    if (w && h && l && kg) grouped[label].cartons.push({ w, h, l, kg });
+  });
+  return Object.values(grouped).filter(p => Array.isArray(p.cartons) && p.cartons.length > 0);
+}
+
+function renderManualSavedProducts() {
+  const list = document.getElementById('sizesManualList');
+  if (!list) return;
+  if (!MANUAL_SIZES.length) {
+    list.innerHTML = '<li class="text-muted">Brak produktów – dodaj kartony i kliknij „Dodaj produkt”.</li>';
+    return;
+  }
+  list.innerHTML = MANUAL_SIZES.map((p) => {
+    const cartonsHtml = (p.cartons || []).map((c, idx) =>
+      `${idx + 1}. ${c.w}×${c.h}×${c.l} cm, ${c.kg} kg`
+    ).join('<br>');
+    return `<li><strong>${p.name}</strong><br><small>${cartonsHtml}</small></li>`;
+  }).join('');
+}
+
+function applyManualProductsToCatalog() {
+  MANUAL_LABELS.forEach((label) => {
+    if (PRODUCTS[label]) delete PRODUCTS[label];
+  });
+  MANUAL_LABELS = new Set();
+  MANUAL_SIZES.forEach((p) => {
+    const label = String(p.label || p.name || '').trim();
+    const cartons = (p.cartons || []).map((c) => {
+      const wM = parseFloat(c.w) / 100;
+      const hM = parseFloat(c.h) / 100;
+      const lM = parseFloat(c.l) / 100;
+      if (Number.isNaN(wM) || Number.isNaN(hM) || Number.isNaN(lM)) return null;
+      return { dims: [wM, hM, lM], weight: parseFloat(c.kg) || 0 };
+    }).filter(Boolean);
+    if (!label || cartons.length === 0) return;
+    PRODUCTS[label] = cartons;
+    MANUAL_LABELS.add(label);
+  });
+}
+
+function initManualSizesPanel() {
+  const nav = document.getElementById('nav-tiles');
+  if (!nav || document.getElementById('sizesManualPanel')) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'sizesManualPanel';
+  wrap.className = 'sizes-manual-panel';
+  wrap.innerHTML = `
+    <h6><i class="bi bi-rulers"></i> Rozmiar ręczny</h6>
+    <div class="sizes-manual-row mb-1">
+      <input name="name" class="form-control form-control-sm" placeholder="Nazwa produktu (np. Skyline 3x4)">
+    </div>
+    <div class="sizes-manual-row mb-1">
+      <input name="w" type="number" class="form-control form-control-sm" placeholder="Szer [cm]">
+      <input name="h" type="number" class="form-control form-control-sm" placeholder="Wys [cm]">
+      <input name="l" type="number" class="form-control form-control-sm" placeholder="Dł [cm]">
+      <input name="kg" type="number" step="0.1" class="form-control form-control-sm" placeholder="Waga [kg]">
+      <button type="button" class="btn btn-sm btn-outline-success ms-1" id="btnManualAddCarton">
+        + Karton
+      </button>
+    </div>
+    <ol class="sizes-manual-list mb-1" id="sizesManualDraftList">
+      <li class="text-muted">Brak kartonów produktu.</li>
+    </ol>
+    <div class="d-grid mb-2">
+      <button type="button" class="btn btn-sm btn-primary" id="btnManualAddProduct">
+        Dodaj produkt
+      </button>
+    </div>
+    <ol class="sizes-manual-list" id="sizesManualList">
+      <li class="text-muted">Brak produktów – dodaj kartony i kliknij „Dodaj produkt”.</li>
+    </ol>
+  `;
+  nav.parentElement.appendChild(wrap);
+
+  const addCartonBtn = document.getElementById('btnManualAddCarton');
+  const addProductBtn = document.getElementById('btnManualAddProduct');
+  const draftList = document.getElementById('sizesManualDraftList');
+  const nameInput = wrap.querySelector('input[name="name"]');
+  const wInput = wrap.querySelector('input[name="w"]');
+  const hInput = wrap.querySelector('input[name="h"]');
+  const lInput = wrap.querySelector('input[name="l"]');
+  const kgInput = wrap.querySelector('input[name="kg"]');
+  let draftCartons = [];
+
+  function renderDraft() {
+    if (!draftList) return;
+    if (!draftCartons.length) {
+      draftList.innerHTML = '<li class="text-muted">Brak kartonów produktu.</li>';
+      return;
+    }
+    draftList.innerHTML = draftCartons.map((c, idx) =>
+      `<li>${idx + 1}. ${c.w}×${c.h}×${c.l} cm, ${c.kg} kg</li>`
+    ).join('');
+  }
+
+  addCartonBtn.addEventListener('click', () => {
+    const w = (wInput.value || '').trim();
+    const h = (hInput.value || '').trim();
+    const l = (lInput.value || '').trim();
+    const kg = (kgInput.value || '').trim();
+    if (!w || !h || !l || !kg) return;
+    draftCartons.push({ w, h, l, kg });
+    renderDraft();
+    wInput.value = '';
+    hInput.value = '';
+    lInput.value = '';
+    kgInput.value = '';
+    wInput.focus();
+  });
+
+  addProductBtn.addEventListener('click', () => {
+    const name = (nameInput.value || '').trim();
+    if (!name || !draftCartons.length) return;
+    const label = name;
+    const product = { label, name, cartons: draftCartons.map(c => ({ ...c })) };
+    const existingIdx = MANUAL_SIZES.findIndex(p => p.label === label);
+    if (existingIdx >= 0) MANUAL_SIZES[existingIdx] = product;
+    else MANUAL_SIZES.push(product);
+    applyManualProductsToCatalog();
+    renderManualSavedProducts();
+    renderProducts(Object.entries(PRODUCTS));
+    saveManualSizes();
+    draftCartons = [];
+    renderDraft();
+    nameInput.value = '';
+  });
+
+  renderDraft();
+  renderManualSavedProducts();
+}
+
+function genNormalize(str) {
+  return (str || '').toLowerCase();
+}
+
+function genExtractBrand(name) {
+  const n = genNormalize(name);
+  if (n.includes('nordvic')) return 'Nordvic';
+  if (n.includes('nordeck')) return 'Nordeck';
+  if (n.includes('mirador') || n.includes('80 solid')) return 'Mirador';
+  return '';
+}
+
+function genExtractType(name) {
+  const n = genNormalize(name);
+  if (n.includes('sztachet')) return 'sztacheta';
+  if (n.includes('deska')) return 'deska';
+  if (n.includes('pergola')) return 'pergola';
+  if (n.includes('roleta')) return 'roleta';
+  return '';
+}
+
+function genParseSize(name) {
+  const txt = (name || '').toLowerCase().replace(',', '.');
+  // 3 liczby: 2200x150x20, 2200 x 150 x 20, z jednostkami
+  let m = txt.match(/(\d+(?:\.\d+)?)[x×](\d+(?:\.\d+)?)[x×](\d+(?:\.\d+)?)\s*(mm|cm|m)?/);
+  if (m) {
+    let [_, a, b, c, unit] = m;
+    let k = 1; // domyślnie cm
+    if (unit === 'mm') k = 0.1;
+    if (unit === 'm') k = 100;
+    return {
+      w: Math.round(parseFloat(a) * k),
+      h: Math.round(parseFloat(b) * k),
+      l: Math.round(parseFloat(c) * k),
+    };
+  }
+  // 2 liczby: 3x3m, 3 x 4 m – mapujemy na szerokość i długość
+  m = txt.match(/(\d+(?:\.\d+)?)[x×](\d+(?:\.\d+)?)\s*(mm|cm|m)?/);
+  if (m) {
+    let [_, a, b, unit] = m;
+    let k = 1;
+    if (unit === 'mm') k = 0.1;
+    if (unit === 'm') k = 100;
+    return {
+      w: Math.round(parseFloat(a) * k),
+      h: '',
+      l: Math.round(parseFloat(b) * k),
+    };
+  }
+  return { w: '', h: '', l: '' };
+}
+
+function genSimpleName(item) {
+  const brand = genExtractBrand(item.name) || '---';
+  const type = genExtractType(item.name) || 'produkt';
+  const size = genParseSize(item.name);
+  const sizeLabel = (size.w && size.h && size.l) ? `${size.w}x${size.h}x${size.l}` : '';
+  return `${type} ${brand}${sizeLabel ? ' ' + sizeLabel : ''}`;
+}
+
+function genRenderResults(rows) {
+  const tbody = document.getElementById('genResultsBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">Brak wyników dla podanych filtrów.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map((row, idx) => {
+    const size = genParseSize(row.name);
+    const simple = genSimpleName(row);
+    return `
+      <tr>
+        <td>${simple}</td>
+        <td><input type="number" class="form-control form-control-sm" value="${size.w || ''}" data-field="w" data-idx="${idx}"></td>
+        <td><input type="number" class="form-control form-control-sm" value="${size.h || ''}" data-field="h" data-idx="${idx}"></td>
+        <td><input type="number" class="form-control form-control-sm" value="${size.l || ''}" data-field="l" data-idx="${idx}"></td>
+        <td><input type="number" class="form-control form-control-sm" value="" step="0.1" data-field="kg" data-idx="${idx}"></td>
+        <td><button class="btn btn-sm btn-outline-success" data-action="add" data-idx="${idx}">Dodaj</button></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function genRenderSelected() {
+  const tbody = document.getElementById('genSelectedBody');
+  if (!GEN_SELECTED.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">Brak pozycji.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = GEN_SELECTED.map(row => `
+    <tr>
+      <td>${row.name}</td>
+      <td>${row.w}</td>
+      <td>${row.h}</td>
+      <td>${row.l}</td>
+      <td>${row.kg}</td>
+    </tr>
+  `).join('');
+}
+
+async function loadManualSizes() {
+  // Najpierw spróbuj z API
+  try {
+    const res = await fetch('/api/rozmiary/manual');
+    const data = await res.json();
+    if (data && data.success && Array.isArray(data.items)) {
+      MANUAL_SIZES = normalizeManualItems(data.items);
+      applyManualProductsToCatalog();
+      renderManualSavedProducts();
+      renderProducts(Object.entries(PRODUCTS));
+      // Zaktualizuj cache w localStorage
+      try {
+        localStorage.setItem(MANUAL_STORAGE_KEY, JSON.stringify(MANUAL_SIZES));
+      } catch (_) {}
+      return;
+    }
+  } catch (_) {
+    // Ignoruj, spróbujemy z localStorage
+  }
+
+  // Fallback: localStorage
+  try {
+    const saved = localStorage.getItem(MANUAL_STORAGE_KEY);
+    if (!saved) return;
+    const arr = JSON.parse(saved);
+    if (!Array.isArray(arr)) return;
+    MANUAL_SIZES = normalizeManualItems(arr);
+    applyManualProductsToCatalog();
+    renderManualSavedProducts();
+    renderProducts(Object.entries(PRODUCTS));
+  } catch (_) {}
+}
+
+async function saveManualSizes() {
+  try {
+    await fetch('/api/rozmiary/manual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: MANUAL_SIZES }),
+    });
+  } catch (_) {
+    // ciche niepowodzenie API
+  }
+  // Zapis awaryjny lokalnie (działa także bez endpointu API)
+  try {
+    localStorage.setItem(MANUAL_STORAGE_KEY, JSON.stringify(MANUAL_SIZES));
+  } catch (_) {}
+}
+
+async function genLoadInventory() {
+  if (GEN_INVENTORY) return GEN_INVENTORY;
+  const res = await fetch('/api/magazyn');
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Błąd API magazynu');
+  GEN_INVENTORY = data.items || data.data?.items || [];
+  return GEN_INVENTORY;
+}
+
+async function genScan() {
+  const btn = document.getElementById('btnGenScan');
+  const brand = document.getElementById('genBrand').value;
+  const typeText = genNormalize(document.getElementById('genType').value || '');
+  const query = genNormalize(document.getElementById('genQuery').value || '');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Szukam...';
+  try {
+    const items = await genLoadInventory();
+    let rows = items.slice();
+    if (brand) {
+      rows = rows.filter(r => genExtractBrand(r.name) === brand);
+    }
+    if (typeText) {
+      rows = rows.filter(r => genNormalize(r.name).includes(typeText));
+    }
+    if (query) {
+      rows = rows.filter(r =>
+        genNormalize(r.name).includes(query) ||
+        genNormalize(r.code || '').includes(query)
+      );
+    }
+    // tylko te, z których umiemy coś wyciągnąć
+    rows = rows.filter(r => {
+      const s = genParseSize(r.name);
+      return s.w || s.h || s.l;
+    });
+    GEN_CURRENT_ROWS = rows;
+    genRenderResults(rows);
+  } catch (e) {
+    document.getElementById('genResultsBody').innerHTML =
+      `<tr><td colspan="6" class="text-danger text-center">Błąd: ${e.message}</td></tr>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-search"></i> Skanuj magazyn';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('btnGenScan');
+  if (btn) btn.addEventListener('click', genScan);
+  const toggle = document.getElementById('btnGenToggle');
+  const body = document.getElementById('genPanelBody');
+  if (toggle && body) {
+    toggle.addEventListener('click', () => {
+      const isHidden = body.style.display === 'none' || body.style.display === '';
+      body.style.display = isHidden ? 'block' : 'none';
+      toggle.innerHTML = isHidden
+        ? '<i class="bi bi-chevron-up"></i> Ukryj'
+        : '<i class="bi bi-chevron-down"></i> Pokaż';
+    });
+  }
+  const tbody = document.getElementById('genResultsBody');
+  if (tbody) {
+    tbody.addEventListener('click', (e) => {
+      const btnEl = e.target.closest('button[data-action="add"]');
+      if (!btnEl) return;
+      const idx = parseInt(btnEl.dataset.idx, 10);
+      const inputs = tbody.querySelectorAll(`input[data-idx="${idx}"]`);
+      const vals = { w: '', h: '', l: '', kg: '' };
+      inputs.forEach(inp => { vals[inp.dataset.field] = inp.value; });
+      const row = GEN_CURRENT_ROWS[idx];
+      if (!row) return;
+      const simple = genSimpleName(row);
+      GEN_SELECTED.push({
+        name: simple,
+        w: vals.w,
+        h: vals.h,
+        l: vals.l,
+        kg: vals.kg,
+      });
+      genRenderSelected();
+    });
+  }
+  genRenderSelected();
+  initManualSizesPanel();
+
+  // Przywróć ręcznie dodane pozycje z API (z localStorage jako cache awaryjny)
+  loadManualSizes();
+
+  // Obsługa usuwania ręcznie dodanych kafelków (z potwierdzeniem w modalu)
+  const grid = document.getElementById('productsGrid');
+  const modalEl = document.getElementById('manualDeleteModal');
+  const modalText = document.getElementById('manualDeleteText');
+  const modalConfirm = document.getElementById('manualDeleteConfirmBtn');
+  let bsModal = null;
+  if (modalEl && window.bootstrap && window.bootstrap.Modal) {
+    bsModal = new bootstrap.Modal(modalEl);
+  }
+
+  if (grid) {
+    grid.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-manual]');
+      if (!btn) return;
+      const label = btn.getAttribute('data-manual');
+      MANUAL_DELETE_LABEL = label;
+      if (modalText) {
+        modalText.textContent = `Czy na pewno usunąć „${label}”?`;
+      }
+      if (bsModal) {
+        bsModal.show();
+      } else if (window.confirm(`Usunąć „${label}”?`)) {
+        performManualDelete();
+      }
+    });
+  }
+
+  function performManualDelete() {
+    if (!MANUAL_DELETE_LABEL) return;
+    const label = MANUAL_DELETE_LABEL;
+    MANUAL_DELETE_LABEL = null;
+    // Usuń z listy ręcznych
+    MANUAL_SIZES = MANUAL_SIZES.filter(s => s.label !== label);
+    MANUAL_LABELS.delete(label);
+    // Usuń z katalogu produktów
+    if (PRODUCTS[label]) {
+      delete PRODUCTS[label];
+    }
+    // Odśwież widoki
+    renderManualSavedProducts();
+    renderProducts(Object.entries(PRODUCTS));
+    saveManualSizes();
+  }
+
+  if (modalConfirm) {
+    modalConfirm.addEventListener('click', () => {
+      performManualDelete();
+      if (bsModal) {
+        bsModal.hide();
+      }
+    });
+  }
+});
+
+const PRODUCTS = {
+  'THR Thor mały (2 kartony)': [
+    { dims: [0.13, 0.41, 1.51], weight: 21 },
+    { dims: [0.16, 0.62, 1.73], weight: 56 },
+  ],
+  'THR Thor średni (3 kartony)': [
+    { dims: [0.12, 0.62, 1.73], weight: 44 },
+    { dims: [0.09, 0.61, 1.55], weight: 23 },
+    { dims: [0.13, 0.41, 1.70], weight: 23 },
+  ],
+  'THR Thor duży (3 kartony)': [
+    { dims: [0.13, 0.62, 1.73], weight: 49 },
+    { dims: [0.10, 0.61, 1.55], weight: 26 },
+    { dims: [0.12, 0.44, 1.70], weight: 26 },
+  ],
+  'MGN Magni mały (2 kartony)': [
+    { dims: [0.13, 0.41, 1.51], weight: 21 },
+    { dims: [0.16, 0.62, 1.73], weight: 56 },
+  ],
+  'MGN Magni średni (3 kartony)': [
+    { dims: [1.83, 0.62, 0.12], weight: 48 },
+    { dims: [1.55, 0.60, 0.09], weight: 24 },
+    { dims: [1.52, 0.40, 0.14], weight: 20 },
+  ],
+  'MGN Magni duży (3 kartony)': [
+    { dims: [1.83, 0.62, 0.13], weight: 53 },
+    { dims: [1.55, 0.61, 0.10], weight: 24 },
+    { dims: [1.68, 0.44, 0.13], weight: 22 },
+  ],
+  'VID Vidar mały (2 kartony)': [
+    { dims: [0.13, 0.64, 1.88], weight: 32 },
+    { dims: [0.18, 0.64, 1.45], weight: 27 },
+  ],
+  'VID Vidar duży (3 kartony)': [
+    { dims: [0.11, 0.64, 2.41], weight: 30 },
+    { dims: [0.17, 0.64, 1.88], weight: 34 },
+    { dims: [0.20, 0.64, 1.16], weight: 29 },
+  ],
+  'SKY Skyline 3×2,5 (4 kartony)': [
+    { dims: [2.81, 0.27, 0.27], weight: 29 },
+    { dims: [2.97, 0.29, 0.15], weight: 36 },
+    { dims: [2.37, 0.34, 0.27], weight: 37 },
+    { dims: [2.37, 0.27, 0.19], weight: 16 },
+  ],
+  'SKY Skyline 3×3 przyścienna (4 kartony)': [
+    { dims: [2.82, 0.24, 0.125], weight: 14 },
+    { dims: [2.97, 0.29, 0.15], weight: 34 },
+    { dims: [2.88, 0.24, 0.34], weight: 36 },
+    { dims: [2.88, 0.24, 0.19], weight: 22 },
+  ],
+  'SKY Skyline 3×4 (4 kartony)': [
+    { dims: [2.82, 0.27, 0.24], weight: 29 },
+    { dims: [3.96, 0.26, 0.15], weight: 40 },
+    { dims: [2.89, 0.34, 0.24], weight: 37 },
+    { dims: [2.89, 0.33, 0.27], weight: 39 },
+  ],
+  'SKY Skyline 4×4 (4 kartony)': [
+    { dims: [2.81, 0.27, 0.24], weight: 28 },
+    { dims: [3.96, 0.29, 0.15], weight: 49 },
+    { dims: [3.87, 0.34, 0.34], weight: 72 },
+    { dims: [3.87, 0.31, 0.34], weight: 69 },
+  ],
+  'SKY Skyline 3×6 LED (5 kartonów)': [
+    { dims: [2.81, 0.38, 0.24], weight: 42 },
+    { dims: [2.82, 0.43, 0.15], weight: 54 },
+    { dims: [2.88, 0.24, 0.34], weight: 50 },
+    { dims: [2.88, 0.24, 0.34], weight: 50 },
+    { dims: [2.88, 0.24, 0.34], weight: 50 },
+  ],
+  'MRD Mirador 3×2 (2 kartony)': [
+    { dims: [3.00, 0.35, 0.22], weight: 50 },
+    { dims: [2.86, 0.37, 0.23], weight: 68 },
+  ],
+  'MRD Mirador 3×2,4 (2 kartony)': [
+    { dims: [2.86, 0.22, 0.35], weight: 83 },
+    { dims: [2.85, 0.33, 0.37], weight: 68 },
+  ],
+  'MRD Mirador 3×3 (2 kartony)': [
+    { dims: [2.83, 0.31, 0.38], weight: 89 },
+    { dims: [2.86, 0.22, 0.25], weight: 70 },
+  ],
+  'MRD Mirador 3×4 (4 kartony)': [
+    { dims: [2.96, 0.40, 0.20], weight: 42 },
+    { dims: [2.86, 0.40, 0.20], weight: 50 },
+    { dims: [2.26, 0.20, 0.20], weight: 40 },
+    { dims: [3.86, 0.20, 0.20], weight: 50 },
+  ],
+  'MRD Mirador 3×6 (5 kartonów)': [
+    { dims: [2.55, 0.37, 0.24], weight: 48 },
+    { dims: [3.36, 0.41, 0.17], weight: 68 },
+    { dims: [2.98, 0.40, 0.19], weight: 64 },
+    { dims: [2.98, 0.40, 0.19], weight: 64 },
+    { dims: [2.98, 0.40, 0.19], weight: 60 },
+  ],
+  'NVC VIKEN 3×4 (4 kartony)': [
+    { dims: [3.865, 0.33, 0.145], weight: 56.5 },
+    { dims: [2.695, 0.225, 0.20], weight: 23.7 },
+    { dims: [2.94, 0.20, 0.12], weight: 47.3 },
+    { dims: [2.94, 0.20, 0.12], weight: 47.3 },
+  ],
+  'RSK Roleta Skyline 3 m (1 karton)': [{ dims: [0.12, 0.23, 2.75], weight: 24 }],
+  'RSK Roleta Skyline 4 m (1 karton)': [{ dims: [0.12, 0.23, 3.75], weight: 28 }],
+  'RMD Roleta Mirador 3 m (1 karton)': [{ dims: [0.12, 0.23, 2.75], weight: 24 }],
+  'RMD Roleta Mirador 4 m (1 karton)': [{ dims: [0.12, 0.23, 3.75], weight: 35 }],
+  'ZSK Żaluzje Skyline 90 (1 karton)': [{ dims: [0.15, 0.39, 1.28], weight: 22 }],
+  'ZSK Żaluzje Skyline 128 (1 karton)': [{ dims: [0.18, 0.35, 1.28], weight: 26 }],
+  'ZMD Żaluzja Mirador (1 karton)': [{ dims: [2.28, 0.26, 0.08], weight: 28 }],
+  'LWK Ławka Keter (1 karton)': [{ dims: [1.30, 0.07, 0.19], weight: 15 }],
+  'MBL Volterra (1 karton)': [{ dims: [0.96, 0.63, 0.32], weight: 31 }],
+  'MBL Cortona (1 karton)': [{ dims: [1.53, 0.82, 0.43], weight: 59 }],
+  'MLG Meble Lounge (2 kartony)': [
+    { dims: [1.63, 0.77, 0.43], weight: 40 },
+    { dims: [0.82, 0.77, 0.39], weight: 21 },
+  ],
+  'CFR CarPort FR 3×6 (1 kpl.)': [{ dims: [3.30, 0.77, 0.23], weight: 98 }],
+  'CFR CarPort FR 3×5 (1 kpl.)': [{ dims: [3.13, 0.76, 0.21], weight: 89 }],
+  'CNJ CarPort NJ 3×6 (1 kpl.)': [{ dims: [3.24, 0.77, 0.20], weight: 98 }],
+  'CNJ CarPort NJ 3×5 (1 kpl.)': [{ dims: [3.14, 0.76, 0.20], weight: 91 }],
+};
+
+function formatDims(dims) {
+  return dims.map(d => d.toFixed(2)).join(' × ') + ' m';
+}
+
+function totalWeight(cartons) {
+  return cartons.reduce((sum, c) => sum + (Number(c.weight) || 0), 0);
+}
+
+function normalize(str) {
+  return str
+    .toLowerCase()
+    .replace(/×/g, 'x')
+    .replace(/\s+/g, '');
+}
+
+function renderProduct(productName, cartons) {
+  const isManual = MANUAL_LABELS && MANUAL_LABELS.has(productName);
+  const safeName = productName.replace(/"/g, '&quot;');
+  const sumKg = totalWeight(cartons);
+  return `
+    <div class="col-12 col-md-6 col-lg-4 col-xl-3 product-item" data-name="${productName.toLowerCase()}">
+      <div class="product-card">
+        ${isManual ? `<button type="button" class="btn btn-sm btn-outline-danger manual-delete-btn" data-manual="${safeName}"><i class="bi bi-trash"></i></button>` : ''}
+        <div class="product-title">${productName}</div>
+        <div class="cartons-box flex-grow-1">
+          ${cartons.map((carton, idx) => `
+            <div class="carton-item">
+              <div class="carton-line">
+                <span class="carton-number">${idx + 1}.</span>
+                <span class="carton-dims">${formatDims(carton.dims)}</span>
+                <span class="carton-weight">${carton.weight} kg</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="mt-1 text-end" style="font-size: 13px; font-weight: 600;">
+          Suma: ${sumKg.toFixed(0)} kg
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderProducts(products) {
+  const grid = document.getElementById('productsGrid');
+  const noResults = document.getElementById('noResults');
+  
+  if (products.length === 0) {
+    grid.style.display = 'none';
+    noResults.style.display = 'block';
+    return;
+  }
+  
+  grid.style.display = 'flex';
+  noResults.style.display = 'none';
+  grid.innerHTML = products.map(([name, cartons]) => renderProduct(name, cartons)).join('');
+}
+
+function filterProducts(searchTerm) {
+  const term = searchTerm.toLowerCase().trim();
+  if (!term) {
+    return Object.entries(PRODUCTS);
+  }
+
+  const termNorm = normalize(term);
+  const termTokens = term.split(/\s+/).filter(Boolean);
+
+  return Object.entries(PRODUCTS).filter(([name]) => {
+    const nameLower = name.toLowerCase();
+    const nameNorm = normalize(name);
+
+    // 1) pełny znormalizowany ciąg (np. "3x4" lub "3 x 4" -> "3x4") w nazwie
+    if (termNorm && nameNorm.includes(termNorm)) return true;
+
+    // 2) każde słowo z zapytania musi wystąpić w nazwie (zachowaj proste OR na norm)
+    return termTokens.every(t => {
+      const tNorm = normalize(t);
+      return nameLower.includes(t) || nameNorm.includes(tNorm);
+    });
+  });
+}
+
+// Inicjalizacja
+const SEARCH_PLACEHOLDER = 'Szukaj produktu... (np. Thor, Skyline, Roleta)';
+document.addEventListener('DOMContentLoaded', () => {
+  const searchInput = document.getElementById('searchInput');
+  let searchLogTimer = null;
+  let lastSearchKey = '';
+  let userSearchTriggered = false;
+  
+  // Placeholder znika po kliknięciu (focus), wraca przy blur jeśli pole puste
+  searchInput.addEventListener('focus', () => { searchInput.placeholder = ''; });
+  searchInput.addEventListener('blur', () => { if (!searchInput.value.trim()) searchInput.placeholder = SEARCH_PLACEHOLDER; });
+  
+  // Renderuj wszystkie produkty na start
+  renderProducts(Object.entries(PRODUCTS));
+  
+  // Obsługa wyszukiwania
+  searchInput.addEventListener('input', (e) => {
+    userSearchTriggered = true;
+    const query = (e.target.value || '').trim();
+    const filtered = filterProducts(query);
+    renderProducts(filtered);
+    if (!userSearchTriggered) return;
+    const key = query || '-';
+    if (key === lastSearchKey) return;
+    lastSearchKey = key;
+    if (searchLogTimer) clearTimeout(searchLogTimer);
+    searchLogTimer = setTimeout(() => {
+      const details = `module=rozmiary query=${query || '-'} results=${filtered.length}`;
+      fetch('/api/event-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'search', details })
+      }).catch(() => {});
+    }, 800);
+  });
+});
+</script>
+{% endblock %}

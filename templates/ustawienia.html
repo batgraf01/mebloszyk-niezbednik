@@ -1,0 +1,560 @@
+{% extends "base_panel.html" %}
+{% block title %}Ustawienia{% endblock %}
+
+{% block content %}
+<style>
+  .status-dot,
+  .role-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    line-height: 1;
+  }
+  .status-active { background: #28a745; }
+  .status-inactive { background: #dc3545; }
+  .role-admin { background: #0f6cbd; }
+  .role-operator { background: #7b2cbf; }
+  .role-user { background: #28a745; }
+  .user-action-btn {
+    border: none;
+    background: transparent;
+    padding: 2px 6px;
+    font-size: 16px;
+    line-height: 1;
+  }
+  .user-action-btn.action-delete { color: #dc3545; }
+  .user-action-btn.action-rename { color: #0f6cbd; }
+  .user-action-btn.action-toggle { color: #7b2cbf; }
+</style>
+<div class="row">
+  <div class="col-12 col-lg-6 mb-4">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="mb-3">Zmiana hasła</h2>
+        <form id="change-password-form">
+          <div class="mb-3">
+            <label for="old-password" class="form-label">Stare hasło</label>
+            <div class="input-group">
+              <input type="password" class="form-control" id="old-password" required>
+              <button class="btn btn-outline-secondary toggle-password" type="button" data-target="old-password" aria-label="Pokaż hasło">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="new-password" class="form-label">Nowe hasło</label>
+            <div class="input-group">
+              <input type="password" class="form-control" id="new-password" required>
+              <button class="btn btn-outline-secondary toggle-password" type="button" data-target="new-password" aria-label="Pokaż hasło">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="confirm-password" class="form-label">Potwierdź nowe hasło</label>
+            <div class="input-group">
+              <input type="password" class="form-control" id="confirm-password" required>
+              <button class="btn btn-outline-secondary toggle-password" type="button" data-target="confirm-password" aria-label="Pokaż hasło">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Zmień hasło</button>
+        </form>
+        <div id="password-message" class="mt-3"></div>
+      </div>
+    </div>
+  </div>
+
+  {% if session.get('role') == 'admin' %}
+  <div class="col-12 col-lg-6 mb-4">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="mb-3">Dodaj użytkownika</h2>
+        <form id="add-user-form">
+          <div class="mb-3">
+            <label for="new-username" class="form-label">Nazwa użytkownika</label>
+            <input type="text" class="form-control" id="new-username" required>
+          </div>
+          <div class="mb-3">
+            <label for="new-user-password" class="form-label">Hasło</label>
+            <div class="input-group">
+              <input type="password" class="form-control" id="new-user-password" required>
+              <button class="btn btn-outline-secondary toggle-password" type="button" data-target="new-user-password" aria-label="Pokaż hasło">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="new-user-role" class="form-label">Rola</label>
+            <select class="form-select" id="new-user-role" required>
+              <option value="user">User</option>
+              <option value="operator">Operator</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-success">Dodaj użytkownika</button>
+        </form>
+        <div id="add-user-message" class="mt-3"></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% if session.get('role') == 'admin' %}
+<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="mb-3">Zarządzanie użytkownikami</h2>
+        <div class="table-responsive">
+          <table class="table table-hover">
+            <thead>
+              <tr>
+                <th>Nazwa użytkownika</th>
+                <th>Rola</th>
+                <th>Status</th>
+                <th>Data utworzenia</th>
+                <th>Akcje</th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body">
+              <tr>
+                <td colspan="5" class="text-center">Ładowanie...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if session.get('role') == 'admin' %}
+<div class="modal fade" id="renameUserModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edytuj użytkownika</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="rename-username-input" class="form-label">Nazwa użytkownika</label>
+          <input type="text" class="form-control" id="rename-username-input">
+        </div>
+        <div class="mb-3">
+          <label for="edit-user-password" class="form-label">Nowe hasło <span class="text-muted">(opcjonalnie)</span></label>
+          <div class="input-group">
+            <input type="password" class="form-control" id="edit-user-password" placeholder="Pozostaw puste, aby nie zmieniać">
+            <button class="btn btn-outline-secondary toggle-password" type="button" data-target="edit-user-password" aria-label="Pokaż hasło">
+              <i class="bi bi-eye"></i>
+            </button>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="edit-user-role" class="form-label">Rola</label>
+          <select class="form-select" id="edit-user-role">
+            <option value="user">User</option>
+            <option value="operator">Operator</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div id="rename-user-message"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+        <button type="button" class="btn btn-primary" id="confirm-rename-user">Zapisz</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="modal fade" id="deleteUserModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Usuń użytkownika</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body text-center">
+        <div class="mb-3 text-danger">
+          <i class="bi bi-exclamation-triangle-fill" style="font-size: 3rem;"></i>
+        </div>
+        <p>Czy na pewno chcesz trwale usunąć użytkownika <strong id="delete-username-label"></strong>?</p>
+        <p class="text-muted small">Tej operacji nie można cofnąć.</p>
+        <div id="delete-user-message"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+        <button type="button" class="btn btn-danger" id="confirm-delete-user">Usuń</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  const userId = '{{ session.get("user_id") }}';
+  const userRole = '{{ session.get("role", "user") }}';
+  const mustChangePassword = {{ 'true' if session.get('must_change_password') else 'false' }};
+
+  // Pokaż komunikat jeśli trzeba zmienić hasło
+  if (mustChangePassword) {
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-warning alert-dismissible fade show';
+    alert.innerHTML = `
+      <strong>Uwaga!</strong> Musisz zmienić hasło przed kontynuowaniem.
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.querySelector('.card-body').prepend(alert);
+  }
+
+  // Podgląd haseł (oczko)
+  document.querySelectorAll('.toggle-password').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-target');
+      const input = document.getElementById(targetId);
+      if (!input) return;
+      const isPassword = input.type === 'password';
+      input.type = isPassword ? 'text' : 'password';
+      btn.innerHTML = isPassword ? '<i class="bi bi-eye-slash"></i>' : '<i class="bi bi-eye"></i>';
+    });
+  });
+
+  // Zmiana hasła
+  const changePasswordForm = document.getElementById('change-password-form');
+  if (changePasswordForm) {
+    changePasswordForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const messageDiv = document.getElementById('password-message');
+      messageDiv.innerHTML = '';
+      
+      const oldPassword = document.getElementById('old-password').value;
+      const newPassword = document.getElementById('new-password').value;
+      const confirmPassword = document.getElementById('confirm-password').value;
+      
+      if (newPassword !== confirmPassword) {
+        messageDiv.innerHTML = '<div class="alert alert-danger">Nowe hasła nie są identyczne.</div>';
+        return;
+      }
+      
+      const policyRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{9,}$/;
+      if (!policyRegex.test(newPassword)) {
+        messageDiv.innerHTML = '<div class="alert alert-danger">Hasło: min 9 znaków, 1 duża litera, 1 cyfra, 1 znak specjalny.</div>';
+        return;
+      }
+      
+      try {
+        const response = await fetch(`/api/users/${userId}/password`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            old_password: oldPassword,
+            new_password: newPassword
+          })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          messageDiv.innerHTML = '<div class="alert alert-success">Hasło zostało zmienione pomyślnie.</div>';
+          changePasswordForm.reset();
+          // Jeśli to była wymuszona zmiana hasła, odśwież stronę
+          if (mustChangePassword) {
+            setTimeout(() => window.location.reload(), 1500);
+          }
+        } else {
+          messageDiv.innerHTML = `<div class="alert alert-danger">${data.error || 'Błąd podczas zmiany hasła.'}</div>`;
+        }
+      } catch (error) {
+        messageDiv.innerHTML = '<div class="alert alert-danger">Wystąpił błąd podczas komunikacji z serwerem.</div>';
+      }
+    });
+  }
+
+  // Dodawanie użytkownika (tylko admin)
+  const addUserForm = document.getElementById('add-user-form');
+  if (addUserForm) {
+    addUserForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const messageDiv = document.getElementById('add-user-message');
+      messageDiv.innerHTML = '';
+      
+      const username = document.getElementById('new-username').value.trim();
+      const password = document.getElementById('new-user-password').value;
+      const role = document.getElementById('new-user-role').value;
+      
+      const policyRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{9,}$/;
+      if (!policyRegex.test(password)) {
+        messageDiv.innerHTML = '<div class="alert alert-danger">Hasło: min 9 znaków, 1 duża litera, 1 cyfra, 1 znak specjalny.</div>';
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, role })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          messageDiv.innerHTML = '<div class="alert alert-success">Użytkownik został dodany pomyślnie.</div>';
+          addUserForm.reset();
+          loadUsers();
+        } else {
+          messageDiv.innerHTML = `<div class="alert alert-danger">${data.error || 'Błąd podczas dodawania użytkownika.'}</div>`;
+        }
+      } catch (error) {
+        messageDiv.innerHTML = '<div class="alert alert-danger">Wystąpił błąd podczas komunikacji z serwerem.</div>';
+      }
+    });
+  }
+
+  // Ładowanie listy użytkowników (tylko admin)
+  async function loadUsers() {
+    if (userRole !== 'admin') return;
+    
+    const tbody = document.getElementById('users-table-body');
+    if (!tbody) return;
+    
+    try {
+      const response = await fetch('/api/users');
+      const data = await response.json();
+      
+      if (data.success && data.users) {
+        if (data.users.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="text-center">Brak użytkowników</td></tr>';
+          return;
+        }
+        
+        tbody.innerHTML = data.users.map(user => {
+          const statusBadge = user.is_active
+            ? '<span class="status-dot status-active" title="Aktywny" aria-label="Aktywny"></span>'
+            : '<span class="status-dot status-inactive" title="Nieaktywny" aria-label="Nieaktywny"></span>';
+          const roleBadge = user.role === 'admin'
+            ? '<span class="role-dot role-admin" title="Admin" aria-label="Admin">A</span>'
+            : user.role === 'operator'
+            ? '<span class="role-dot role-operator" title="Operator" aria-label="Operator">O</span>'
+            : '<span class="role-dot role-user" title="User" aria-label="User">U</span>';
+          
+          const createdDate = new Date(user.created_at).toLocaleDateString('pl-PL');
+          
+          return `
+            <tr>
+              <td>${user.username}</td>
+              <td>${roleBadge}</td>
+              <td>${statusBadge}</td>
+              <td>${createdDate}</td>
+              <td>
+                <button class="user-action-btn action-toggle toggle-user-btn" data-user-id="${user.id}" data-is-active="${user.is_active}" title="${user.is_active ? 'Deaktywuj' : 'Aktywuj'}">
+                  <i class="bi bi-rocket-takeoff-fill ${user.is_active ? 'text-success' : 'text-danger'}"></i>
+                </button>
+                <button class="user-action-btn action-rename rename-user-btn" data-user-id="${user.id}" data-username="${user.username}" data-role="${user.role}" title="Edytuj użytkownika">
+                  <i class="bi bi-pencil-fill"></i>
+                </button>
+                <button class="user-action-btn action-delete delete-user-btn" data-user-id="${user.id}" data-username="${user.username}" ${user.id === userId ? 'disabled' : ''} title="Usuń">
+                  <i class="bi bi-trash3-fill"></i>
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+        if (window.bootstrap && bootstrap.Tooltip) {
+          document.querySelectorAll('[title]').forEach((el) => {
+            if (!el.getAttribute('data-bs-toggle')) {
+              el.setAttribute('data-bs-toggle', 'tooltip');
+              new bootstrap.Tooltip(el);
+            }
+          });
+        }
+        
+        // Dodaj event listenery do przycisków toggle
+        document.querySelectorAll('.toggle-user-btn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const userId = btn.dataset.userId;
+            try {
+              const response = await fetch(`/api/users/${userId}/toggle`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' }
+              });
+              
+              const data = await response.json();
+              if (data.success) {
+                loadUsers();
+              } else {
+                alert('Błąd podczas zmiany statusu użytkownika.');
+              }
+            } catch (error) {
+              alert('Wystąpił błąd podczas komunikacji z serwerem.');
+            }
+          });
+        });
+
+        // Edycja użytkownika (nazwa, hasło, rola) – modal
+        const renameModalEl = document.getElementById('renameUserModal');
+        const renameModal = renameModalEl ? new bootstrap.Modal(renameModalEl) : null;
+        const renameInput = document.getElementById('rename-username-input');
+        const editPasswordInput = document.getElementById('edit-user-password');
+        const editRoleSelect = document.getElementById('edit-user-role');
+        const renameMessage = document.getElementById('rename-user-message');
+        const renameConfirmBtn = document.getElementById('confirm-rename-user');
+        let renameUserId = null;
+        let renameCurrentName = '';
+        let renameCurrentRole = '';
+
+        document.querySelectorAll('.rename-user-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            if (!renameModal) return;
+            renameUserId = btn.dataset.userId;
+            renameCurrentName = btn.dataset.username || '';
+            renameCurrentRole = btn.dataset.role || 'user';
+            if (renameInput) {
+              renameInput.value = renameCurrentName;
+              renameInput.focus();
+            }
+            if (editPasswordInput) editPasswordInput.value = '';
+            if (editRoleSelect) {
+              editRoleSelect.value = renameCurrentRole;
+            }
+            if (renameMessage) renameMessage.innerHTML = '';
+            renameModal.show();
+          });
+        });
+
+        if (renameConfirmBtn) {
+          renameConfirmBtn.onclick = async () => {
+            if (!renameUserId) return;
+            const newName = (renameInput?.value || '').trim();
+            const newPassword = (editPasswordInput?.value || '').trim();
+            const newRole = (editRoleSelect?.value || 'user');
+            const nameChanged = newName && newName !== renameCurrentName;
+            const passwordChanged = newPassword.length > 0;
+            const roleChanged = newRole !== renameCurrentRole;
+
+            if (!nameChanged && !passwordChanged && !roleChanged) {
+              renameModal?.hide();
+              return;
+            }
+            if (!newName) {
+              if (renameMessage) renameMessage.innerHTML = '<div class="alert alert-danger">Nazwa użytkownika jest wymagana.</div>';
+              return;
+            }
+            const policyRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{9,}$/;
+            if (passwordChanged && !policyRegex.test(newPassword)) {
+              if (renameMessage) renameMessage.innerHTML = '<div class="alert alert-danger">Hasło: min 9 znaków, 1 duża litera, 1 cyfra, 1 znak specjalny.</div>';
+              return;
+            }
+            if (renameMessage) renameMessage.innerHTML = '';
+            try {
+              if (nameChanged) {
+                const r1 = await fetch(`/api/users/${renameUserId}/username`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ username: newName })
+                });
+                const d1 = await r1.json();
+                if (!d1.success) {
+                  if (renameMessage) renameMessage.innerHTML = `<div class="alert alert-danger">${d1.error || 'Błąd zmiany nazwy.'}</div>`;
+                  return;
+                }
+              }
+              if (passwordChanged) {
+                const r2 = await fetch(`/api/users/${renameUserId}/password`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ new_password: newPassword, is_admin_change: true })
+                });
+                const d2 = await r2.json();
+                if (!d2.success) {
+                  if (renameMessage) renameMessage.innerHTML = `<div class="alert alert-danger">${d2.error || 'Błąd zmiany hasła.'}</div>`;
+                  return;
+                }
+              }
+              if (roleChanged) {
+                const r3 = await fetch(`/api/users/${renameUserId}/role`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ role: newRole })
+                });
+                const d3 = await r3.json();
+                if (!d3.success) {
+                  if (renameMessage) renameMessage.innerHTML = `<div class="alert alert-danger">${d3.error || 'Błąd zmiany roli.'}</div>`;
+                  return;
+                }
+              }
+              renameModal?.hide();
+              loadUsers();
+            } catch (error) {
+              if (renameMessage) renameMessage.innerHTML = '<div class="alert alert-danger">Wystąpił błąd podczas komunikacji z serwerem.</div>';
+            }
+          };
+        }
+
+        // Usuwanie użytkownika (modal)
+        const deleteModalEl = document.getElementById('deleteUserModal');
+        const deleteModal = deleteModalEl ? new bootstrap.Modal(deleteModalEl) : null;
+        const deleteLabel = document.getElementById('delete-username-label');
+        const deleteMessage = document.getElementById('delete-user-message');
+        const deleteConfirmBtn = document.getElementById('confirm-delete-user');
+        let deleteUserId = null;
+
+        document.querySelectorAll('.delete-user-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            if (!deleteModal) return;
+            deleteUserId = btn.dataset.userId;
+            if (deleteLabel) deleteLabel.textContent = btn.dataset.username;
+            if (deleteMessage) deleteMessage.innerHTML = '';
+            deleteModal.show();
+          });
+        });
+
+        if (deleteConfirmBtn) {
+          deleteConfirmBtn.onclick = async () => {
+            if (!deleteUserId) return;
+            try {
+              const response = await fetch(`/api/users/${deleteUserId}`, {
+                method: 'DELETE'
+              });
+              const data = await response.json();
+              if (data.success) {
+                deleteModal?.hide();
+                loadUsers();
+              } else {
+                if (deleteMessage) {
+                  deleteMessage.innerHTML = `<div class="alert alert-danger mt-2">${data.error || 'Błąd podczas usuwania użytkownika.'}</div>`;
+                }
+              }
+            } catch (error) {
+              if (deleteMessage) {
+                deleteMessage.innerHTML = '<div class="alert alert-danger mt-2">Wystąpił błąd podczas komunikacji z serwerem.</div>';
+              }
+            }
+          };
+        }
+      }
+    } catch (error) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Błąd podczas ładowania użytkowników</td></tr>';
+    }
+  }
+
+  // Załaduj użytkowników przy starcie (tylko admin)
+  if (userRole === 'admin') {
+    loadUsers();
+  }
+})();
+</script>
+{% endblock %}

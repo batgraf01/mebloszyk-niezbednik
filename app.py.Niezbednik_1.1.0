@@ -1,0 +1,1372 @@
+from flask import Flask, render_template, request, redirect, url_for, session, send_from_directory, jsonify, flash
+# NOTE: Reklamacje MVP (PostgreSQL)
+from functools import wraps
+import os
+from werkzeug.utils import secure_filename
+import datetime
+import csv
+import io
+import json
+import uuid
+import re
+from contextlib import closing
+from pathlib import Path
+import requests
+import sqlite3
+
+app = Flask(__name__, static_folder='static', static_url_path='/static')
+app.secret_key = 'suuhouse-magazyn-secret-key-change-in-production-2025'
+app.config['UPLOAD_FOLDER'] = 'shared'
+app.config['REKLAMACJE_UPLOADS'] = os.environ.get(
+    "REKLAMACJE_UPLOADS",
+    os.path.join(os.path.dirname(__file__), "uploads", "reklamacje"),
+)
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+
+# Dozwolone rozszerzenia plików
+ALLOWED_EXTENSIONS = {
+    'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp',
+    'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar',
+    'mp4', 'avi', 'mov', 'mp3'
+}
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# Prosta baza użytkowników (w produkcji użyj prawdziwej bazy)
+USERS = {
+    'suu': 'Suuhouse123'
+}
+
+# Google Sheets / Drive file (stan magazynu)
+GOOGLE_SHEET_ID = '1qN8sUUUXv1PXjjVLoEwhCeoTI5XDUQzC4gHQLNkhvhg'
+GOOGLE_SHEET_GID = '0'
+
+CACHE_BUSTER = "20260108-21"
+REKLAMACJE_DB_URL = os.environ.get("REKLAMACJE_DB_URL", "").strip()
+REKLAMACJE_DB_PATH = os.environ.get(
+    "REKLAMACJE_DB_PATH",
+    os.path.join(os.path.dirname(__file__), "reklamacje.db"),
+)
+REKLAMACJE_JSON_FILE = os.path.join(os.path.dirname(__file__), "reklamacje.json")
+REKLAMACJE_STATUSES = [
+    "Nowa",
+    "W trakcie",
+    "Czekamy na informację",
+    "Zrealizowana",
+    "Odrzucona",
+    "Zamknięta",
+]
+REKLAMACJE_TYPES = [
+    "Uszkodzony element",
+    "Uszkodzony cały produkt",
+    "Brak elementu",
+]
+REKLAMACJE_DECISIONS = [
+    "Dosłanie części",
+    "Wymiana produktu",
+    "Zwrot środków",
+    "Odrzucenie",
+]
+
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.(pl|com)$", re.IGNORECASE)
+
+
+def validate_email(value):
+    return bool(EMAIL_PATTERN.match(value or ""))
+
+
+def validate_phone(value):
+    return (value or "").isdigit()
+
+
+def normalize_list_field(value, *, max_items=30, max_len=30):
+    """
+    Accepts:
+      - list[str]
+      - JSON string list (e.g. '["DG1","MH56"]')
+      - plain string
+    Returns (items: list[str], text: str)
+    """
+    items = []
+    if value is None:
+        return [], ""
+
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        text = str(value).strip()
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+                raw_items = parsed if isinstance(parsed, list) else []
+            except Exception:
+                raw_items = []
+        else:
+            # Plain string; treat as single "text" field
+            cleaned = text
+            return [], cleaned
+
+    for it in raw_items[:max_items]:
+        if not isinstance(it, str):
+            continue
+        cleaned = it.strip()
+        if not cleaned:
+            continue
+        if len(cleaned) > max_len:
+            cleaned = cleaned[:max_len]
+        if any(existing.lower() == cleaned.lower() for existing in items):
+            continue
+        items.append(cleaned)
+
+    return items, ", ".join(items)
+
+@app.context_processor
+def inject_cache_buster():
+    # Used in templates to bust long-lived static caching
+    return {"cache_buster": CACHE_BUSTER}
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'logged_in' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/')
+def index():
+    return redirect(url_for('rozmiary'))
+
+# File sharing routes (no authentication required)
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({'error': 'Brak pliku'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'Nie wybrano pliku'}), 400
+
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+
+        return jsonify({
+            'success': True,
+            'filename': filename,
+            'url': f'/download/shared/{filename}',
+            'message': f'Plik {filename} został przesłany pomyślnie!'
+        }), 200
+    else:
+        return jsonify({'error': 'Niedozwolony typ pliku'}), 400
+
+@app.route('/download/shared/<filename>')
+def download_shared_file(filename):
+    """Pobierz plik z katalogu shared"""
+    try:
+        return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
+    except FileNotFoundError:
+        return jsonify({'error': 'Plik nie istnieje'}), 404
+
+@app.route('/files')
+def get_files():
+    """Pobierz listę dostępnych plików"""
+    files = []
+    if os.path.exists(app.config['UPLOAD_FOLDER']):
+        for filename in os.listdir(app.config['UPLOAD_FOLDER']):
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            if os.path.isfile(filepath):
+                stat = os.stat(filepath)
+                files.append({
+                    'name': filename,
+                    'size': stat.st_size,
+                    'modified': datetime.datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                })
+
+    return jsonify(files)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        
+        # Debugowanie (można usunąć później)
+        print(f"[DEBUG] Próba logowania: username='{username}', password='{password}'")
+        print(f"[DEBUG] Dostępni użytkownicy: {list(USERS.keys())}")
+        if username in USERS:
+            print(f"[DEBUG] Użytkownik znaleziony. Oczekiwane hasło: '{USERS[username]}'")
+            print(f"[DEBUG] Porównanie: '{USERS[username]}' == '{password}' -> {USERS[username] == password}")
+        
+        if username in USERS and USERS[username] == password:
+            session['logged_in'] = True
+            session['username'] = username
+            print(f"[DEBUG] Logowanie udane dla użytkownika: {username}")
+            return redirect(url_for('index'))
+        else:
+            print(f"[DEBUG] Logowanie nieudane dla użytkownika: {username}")
+            return render_template('login.html', error='Nieprawidłowa nazwa użytkownika lub hasło')
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+@app.route('/magazyn')
+@login_required
+def magazyn():
+    return render_template('magazyn_new.html',
+                         sheet_id=GOOGLE_SHEET_ID,
+                         sheet_gid=GOOGLE_SHEET_GID,
+                         username=session.get('username', 'Użytkownik'))
+
+
+def fetch_inventory():
+    """
+    Pobiera arkusz w formacie CSV i zwraca listę słowników.
+    """
+    candidates = [
+        f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/export?format=csv&gid={GOOGLE_SHEET_GID}",
+        f"https://drive.google.com/uc?export=download&id={GOOGLE_SHEET_ID}",
+    ]
+    last_error = None
+    for url in candidates:
+        try:
+            resp = requests.get(url, timeout=15)
+            resp.raise_for_status()
+            content = resp.content.decode('utf-8', errors='ignore')
+            # Odrzuć HTML (np. brak dostępu)
+            if content.lstrip().lower().startswith("<!doctype") or content.lstrip().lower().startswith("<html"):
+                raise ValueError("Otrzymano HTML zamiast CSV (brak dostępu?)")
+            reader = csv.DictReader(io.StringIO(content))
+            rows = list(reader)
+            if rows:
+                return rows
+            last_error = ValueError("Brak wierszy w CSV")
+        except Exception as exc:
+            last_error = exc
+            continue
+    if last_error:
+        raise last_error
+    raise RuntimeError("Nie udało się pobrać danych z arkusza")
+
+
+def parse_inventory_rows(rows):
+    items = []
+    now_ts = datetime.datetime.utcnow().isoformat() + "Z"
+    for row in rows:
+        items.append({
+            "code": (row.get("Kod") or "").strip(),
+            "name": (row.get("Nazwa") or "").strip(),
+            "unit": (row.get("jm") or "").strip(),
+            "ean": (row.get("EAN") or "").strip(),
+            "stock": (row.get("Stan") or row.get("STAN") or "").strip(),
+            "reservation": (row.get("Rezerwacja") or "").strip(),
+            "availability": (row.get("Dostepnosc") or row.get("Dostępność") or "").strip(),
+        })
+    return {"updated_at": now_ts, "items": items}
+
+
+def get_reklamacje_db():
+    if REKLAMACJE_DB_URL:
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+        except Exception as exc:
+            raise RuntimeError("Brak psycopg dla PostgreSQL") from exc
+        conn = psycopg.connect(REKLAMACJE_DB_URL, row_factory=dict_row)
+        return conn
+
+    db_dir = os.path.dirname(REKLAMACJE_DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    conn = sqlite3.connect(REKLAMACJE_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def using_postgres():
+    return bool(REKLAMACJE_DB_URL)
+
+
+def init_reklamacje_db():
+    with closing(get_reklamacje_db()) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS reklamacje (
+                id TEXT PRIMARY KEY,
+                email TEXT,
+                client TEXT,
+                order_no TEXT NOT NULL,
+                purchase_date TEXT,
+                product_model TEXT NOT NULL,
+                customer_name TEXT NOT NULL,
+                phone TEXT NOT NULL,
+                type TEXT NOT NULL,
+                missing_or_damaged_desc TEXT NOT NULL,
+                description TEXT,
+                title TEXT,
+                details TEXT,
+                reported_at TEXT NOT NULL,
+                status TEXT NOT NULL,
+                decision TEXT,
+                decision_reason TEXT,
+                replacement_sent INTEGER NOT NULL DEFAULT 0,
+                closed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        if using_postgres():
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS email TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS client TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS order_no TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS purchase_date TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS product_model TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS customer_name TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS phone TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS type TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS missing_or_damaged_desc TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS description TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS title TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS details TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS reported_at TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS status TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS decision TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS decision_reason TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS replacement_sent INTEGER")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS closed_at TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS created_at TEXT")
+            conn.execute("ALTER TABLE reklamacje ADD COLUMN IF NOT EXISTS updated_at TEXT")
+            conn.execute("ALTER TABLE reklamacje ALTER COLUMN client DROP NOT NULL")
+            conn.execute("ALTER TABLE reklamacje ALTER COLUMN title DROP NOT NULL")
+        else:
+            cols = [row["name"] if isinstance(row, dict) else row[1]
+                    for row in conn.execute("PRAGMA table_info(reklamacje)").fetchall()]
+            def ensure_col(name, ddl):
+                if name not in cols:
+                    conn.execute(ddl)
+            ensure_col("email", "ALTER TABLE reklamacje ADD COLUMN email TEXT")
+            ensure_col("client", "ALTER TABLE reklamacje ADD COLUMN client TEXT")
+            ensure_col("order_no", "ALTER TABLE reklamacje ADD COLUMN order_no TEXT")
+            ensure_col("purchase_date", "ALTER TABLE reklamacje ADD COLUMN purchase_date TEXT")
+            ensure_col("product_model", "ALTER TABLE reklamacje ADD COLUMN product_model TEXT")
+            ensure_col("customer_name", "ALTER TABLE reklamacje ADD COLUMN customer_name TEXT")
+            ensure_col("phone", "ALTER TABLE reklamacje ADD COLUMN phone TEXT")
+            ensure_col("type", "ALTER TABLE reklamacje ADD COLUMN type TEXT")
+            ensure_col("missing_or_damaged_desc", "ALTER TABLE reklamacje ADD COLUMN missing_or_damaged_desc TEXT")
+            ensure_col("description", "ALTER TABLE reklamacje ADD COLUMN description TEXT")
+            ensure_col("title", "ALTER TABLE reklamacje ADD COLUMN title TEXT")
+            ensure_col("details", "ALTER TABLE reklamacje ADD COLUMN details TEXT")
+            ensure_col("reported_at", "ALTER TABLE reklamacje ADD COLUMN reported_at TEXT")
+            ensure_col("status", "ALTER TABLE reklamacje ADD COLUMN status TEXT")
+            ensure_col("decision", "ALTER TABLE reklamacje ADD COLUMN decision TEXT")
+            ensure_col("decision_reason", "ALTER TABLE reklamacje ADD COLUMN decision_reason TEXT")
+            ensure_col("replacement_sent", "ALTER TABLE reklamacje ADD COLUMN replacement_sent INTEGER")
+            ensure_col("closed_at", "ALTER TABLE reklamacje ADD COLUMN closed_at TEXT")
+            ensure_col("created_at", "ALTER TABLE reklamacje ADD COLUMN created_at TEXT")
+            ensure_col("updated_at", "ALTER TABLE reklamacje ADD COLUMN updated_at TEXT")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS reklamacje_parts (
+                id TEXT PRIMARY KEY,
+                claim_id TEXT NOT NULL,
+                part_name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS reklamacje_attachments (
+                id TEXT PRIMARY KEY,
+                claim_id TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                original_name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS reklamacje_notes (
+                id TEXT PRIMARY KEY,
+                claim_id TEXT NOT NULL,
+                note_text TEXT NOT NULL,
+                note_date TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+
+def migrate_reklamacje_from_json():
+    if not os.path.exists(REKLAMACJE_JSON_FILE):
+        return
+    try:
+        with open(REKLAMACJE_JSON_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        items = data if isinstance(data, list) else data.get("items", [])
+    except Exception:
+        return
+    if not items:
+        return
+    with closing(get_reklamacje_db()) as conn:
+        count_row = conn.execute("SELECT COUNT(1) AS cnt FROM reklamacje").fetchone()
+        count = count_row["cnt"] if isinstance(count_row, dict) else count_row[0]
+        if count:
+            return
+        for item in items:
+            insert_sql = (
+                """
+                INSERT INTO reklamacje (
+                    id, order_no, product_model, customer_name, email, phone, type,
+                    missing_or_damaged_desc, description, reported_at, status,
+                    decision, decision_reason, replacement_sent, closed_at,
+                    purchase_date, created_at, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                if using_postgres()
+                else """
+                INSERT INTO reklamacje (
+                    id, order_no, product_model, customer_name, email, phone, type,
+                    missing_or_damaged_desc, description, reported_at, status,
+                    decision, decision_reason, replacement_sent, closed_at,
+                    purchase_date, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+            )
+            conn.execute(
+                insert_sql,
+                (
+                    item.get("id") or uuid.uuid4().hex[:10],
+                    (item.get("order_no") or item.get("order") or "").strip() or "Brak",
+                    (item.get("product_model") or "").strip() or "Pergola",
+                    (item.get("customer_name") or item.get("client") or "").strip() or "Brak",
+                    (item.get("email") or "").strip(),
+                    (item.get("phone") or "").strip(),
+                    (item.get("type") or REKLAMACJE_TYPES[0]).strip(),
+                    (item.get("missing_or_damaged_desc") or item.get("details") or "").strip() or "Brak",
+                    (item.get("description") or "").strip(),
+                    item.get("reported_at") or datetime.datetime.utcnow().date().isoformat(),
+                    (item.get("status") or REKLAMACJE_STATUSES[0]).strip(),
+                    (item.get("decision") or "").strip(),
+                    (item.get("decision_reason") or "").strip(),
+                    1 if item.get("replacement_sent") else 0,
+                    item.get("closed_at") or "",
+                    item.get("purchase_date") or "",
+                    item.get("created_at") or datetime.datetime.utcnow().isoformat() + "Z",
+                    item.get("updated_at") or datetime.datetime.utcnow().isoformat() + "Z",
+                ),
+            )
+        conn.commit()
+
+
+def seed_reklamacje_if_empty():
+    with closing(get_reklamacje_db()) as conn:
+        count_row = conn.execute("SELECT COUNT(1) AS cnt FROM reklamacje").fetchone()
+        count = count_row["cnt"] if isinstance(count_row, dict) else count_row[0]
+        if count:
+            return
+        now = datetime.datetime.utcnow()
+        demo = [
+            {
+                "id": uuid.uuid4().hex[:10],
+                "order_no": "ZAM/1001",
+                "purchase_date": (now - datetime.timedelta(days=14)).date().isoformat(),
+                "product_model": "Pergola X (antracyt)",
+                "customer_name": "Jan Kowalski",
+                "email": "jan@example.com",
+                "phone": "600123123",
+                "type": "Uszkodzony element",
+                "missing_or_damaged_desc": "Porysowana belka boczna",
+                "description": "Uszkodzenie zauważone po rozpakowaniu.",
+                "reported_at": (now - datetime.timedelta(days=5)).date().isoformat(),
+                "status": "Nowa",
+                "decision": "",
+                "decision_reason": "",
+                "replacement_sent": 0,
+                "closed_at": "",
+            },
+            {
+                "id": uuid.uuid4().hex[:10],
+                "order_no": "ZAM/1002",
+                "purchase_date": (now - datetime.timedelta(days=30)).date().isoformat(),
+                "product_model": "Pergola Y (biała)",
+                "customer_name": "Anna Nowak",
+                "email": "anna@example.com",
+                "phone": "501222333",
+                "type": "Brak elementu",
+                "missing_or_damaged_desc": "Brak śrub montażowych",
+                "description": "Brakuje kompletu śrub do montażu.",
+                "reported_at": (now - datetime.timedelta(days=12)).date().isoformat(),
+                "status": "W trakcie",
+                "decision": "Dosłanie części",
+                "decision_reason": "Uzupełnienie brakujących elementów.",
+                "replacement_sent": 1,
+                "closed_at": "",
+            },
+        ]
+        insert_sql = (
+            """
+            INSERT INTO reklamacje (
+                id, order_no, purchase_date, product_model, customer_name, email, phone,
+                type, missing_or_damaged_desc, description, reported_at, status, decision,
+                decision_reason, replacement_sent, closed_at, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            if using_postgres()
+            else """
+            INSERT INTO reklamacje (
+                id, order_no, purchase_date, product_model, customer_name, email, phone,
+                type, missing_or_damaged_desc, description, reported_at, status, decision,
+                decision_reason, replacement_sent, closed_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+        )
+        now_ts = now.isoformat() + "Z"
+        for item in demo:
+            conn.execute(
+                insert_sql,
+                (
+                    item["id"],
+                    item["order_no"],
+                    item["purchase_date"],
+                    item["product_model"],
+                    item["customer_name"],
+                    item["email"],
+                    item["phone"],
+                    item["type"],
+                    item["missing_or_damaged_desc"],
+                    item["description"],
+                    item["reported_at"],
+                    item["status"],
+                    item["decision"],
+                    item["decision_reason"],
+                    item["replacement_sent"],
+                    item["closed_at"],
+                    now_ts,
+                    now_ts,
+                ),
+            )
+        conn.commit()
+
+
+try:
+    init_reklamacje_db()
+    migrate_reklamacje_from_json()
+    if os.environ.get("REKLAMACJE_SEED", "1") == "1":
+        seed_reklamacje_if_empty()
+except Exception as exc:
+    print(f"[WARN] Reklamacje DB init failed: {exc}")
+
+
+def reklamację_required_errors(payload):
+    required = [
+        ("order_no", "Numer zamówienia"),
+        ("product_model", "Model / wariant produktu"),
+        ("customer_name", "Imię i nazwisko"),
+        ("email", "Email"),
+        ("phone", "Telefon"),
+        ("type", "Typ reklamacji"),
+        ("missing_or_damaged_desc", "Co brakuje / co uszkodzone"),
+        ("reported_at", "Data zgłoszenia"),
+    ]
+    errors = []
+    for key, label in required:
+        value = (payload.get(key) or "").strip()
+        if not value:
+            errors.append(label)
+    return errors
+
+
+def normalize_bool(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    text = str(value).strip().lower()
+    return text in {"1", "true", "tak", "yes", "y"}
+
+
+def parse_date(value):
+    if not value:
+        return ""
+    return str(value).strip()
+
+
+def compute_days_open(reported_at, closed_at):
+    if not reported_at:
+        return 0
+    try:
+        start = datetime.datetime.fromisoformat(reported_at[:10])
+    except Exception:
+        return 0
+    if closed_at:
+        try:
+            end = datetime.datetime.fromisoformat(closed_at[:10])
+        except Exception:
+            end = datetime.datetime.utcnow()
+    else:
+        end = datetime.datetime.utcnow()
+    return max(0, (end.date() - start.date()).days)
+
+
+def fetch_parts(conn, claim_id):
+    # Sprawdź czy kolumna sent istnieje
+    try:
+        conn.execute("SELECT sent FROM reklamacje_parts LIMIT 1")
+        has_sent = True
+    except:
+        if using_postgres():
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        has_sent = False
+    select_sql = (
+        "SELECT id, part_name, created_at" + (", sent" if has_sent else "") + " FROM reklamacje_parts WHERE claim_id = %s ORDER BY created_at ASC"
+        if using_postgres()
+        else "SELECT id, part_name, created_at" + (", sent" if has_sent else "") + " FROM reklamacje_parts WHERE claim_id = ? ORDER BY created_at ASC"
+    )
+    rows = conn.execute(select_sql, (claim_id,)).fetchall()
+    return [
+        {
+            "id": row["id"] if isinstance(row, dict) else row[0],
+            "part_name": row["part_name"] if isinstance(row, dict) else row[1],
+            "created_at": row["created_at"] if isinstance(row, dict) else row[2],
+            "sent": bool(row["sent"] if isinstance(row, dict) else (row[3] if len(row) > 3 else 0)) if has_sent else False,
+        }
+        for row in rows
+    ]
+
+
+def fetch_attachments(conn, claim_id):
+    rows = conn.execute(
+        """
+        SELECT id, file_path, original_name, created_at
+        FROM reklamacje_attachments
+        WHERE claim_id = %s
+        ORDER BY created_at ASC
+        """ if using_postgres() else """
+        SELECT id, file_path, original_name, created_at
+        FROM reklamacje_attachments
+        WHERE claim_id = ?
+        ORDER BY created_at ASC
+        """,
+        (claim_id,),
+    ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "file_path": row["file_path"],
+            "original_name": row["original_name"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def fetch_notes(conn, claim_id):
+    rows = conn.execute(
+        """
+        SELECT id, note_text, note_date, created_at
+        FROM reklamacje_notes
+        WHERE claim_id = %s
+        ORDER BY note_date DESC, created_at DESC
+        """ if using_postgres() else """
+        SELECT id, note_text, note_date, created_at
+        FROM reklamacje_notes
+        WHERE claim_id = ?
+        ORDER BY note_date DESC, created_at DESC
+        """,
+        (claim_id,),
+    ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "note_text": row["note_text"],
+            "note_date": row["note_date"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def fetch_last_notes(conn, claim_ids):
+    if not claim_ids:
+        return {}
+    placeholders = ",".join(["%s"] * len(claim_ids)) if using_postgres() else ",".join(["?"] * len(claim_ids))
+    rows = conn.execute(
+        f"""
+        SELECT claim_id, note_text, note_date, created_at
+        FROM reklamacje_notes
+        WHERE claim_id IN ({placeholders})
+        ORDER BY note_date DESC, created_at DESC
+        """,
+        tuple(claim_ids),
+    ).fetchall()
+    latest = {}
+    for row in rows:
+        claim_id = row["claim_id"]
+        if claim_id in latest:
+            continue
+        latest[claim_id] = {
+            "note_text": row["note_text"],
+            "note_date": row["note_date"],
+        }
+    return latest
+
+
+@app.route('/api/reklamacje/<claim_id>/notes', methods=['POST'])
+def reklamacje_notes_api(claim_id):
+    payload = request.get_json(silent=True) or {}
+    note_text = (payload.get("note_text") or "").strip()
+    if not note_text:
+        return jsonify({"success": False, "error": "Wpisz treść uwagi."}), 400
+
+    note_date = parse_date(payload.get("note_date")) or datetime.datetime.utcnow().date().isoformat()
+    note_id = uuid.uuid4().hex[:10]
+    now_ts = datetime.datetime.utcnow().isoformat() + "Z"
+
+    insert_sql = (
+        "INSERT INTO reklamacje_notes (id, claim_id, note_text, note_date, created_at) VALUES (%s, %s, %s, %s, %s)"
+        if using_postgres()
+        else "INSERT INTO reklamacje_notes (id, claim_id, note_text, note_date, created_at) VALUES (?, ?, ?, ?, ?)"
+    )
+    with closing(get_reklamacje_db()) as conn:
+        conn.execute(insert_sql, (note_id, claim_id, note_text, note_date, now_ts))
+        conn.commit()
+        notes = fetch_notes(conn, claim_id)
+    return jsonify({"success": True, "notes": notes})
+
+
+@app.route('/api/reklamacje/<claim_id>/notes/<note_id>', methods=['PUT', 'DELETE'])
+def reklamacje_notes_update_api(claim_id, note_id):
+    if request.method == 'DELETE':
+        delete_sql = (
+            "DELETE FROM reklamacje_notes WHERE id = %s AND claim_id = %s"
+            if using_postgres()
+            else "DELETE FROM reklamacje_notes WHERE id = ? AND claim_id = ?"
+        )
+        with closing(get_reklamacje_db()) as conn:
+            conn.execute(delete_sql, (note_id, claim_id))
+            conn.commit()
+            notes = fetch_notes(conn, claim_id)
+        return jsonify({"success": True, "notes": notes})
+
+    payload = request.get_json(silent=True) or {}
+    note_text = (payload.get("note_text") or "").strip()
+    if not note_text:
+        return jsonify({"success": False, "error": "Wpisz treść uwagi."}), 400
+    note_date = parse_date(payload.get("note_date")) or datetime.datetime.utcnow().date().isoformat()
+
+    update_sql = (
+        "UPDATE reklamacje_notes SET note_text = %s, note_date = %s WHERE id = %s AND claim_id = %s"
+        if using_postgres()
+        else "UPDATE reklamacje_notes SET note_text = ?, note_date = ? WHERE id = ? AND claim_id = ?"
+    )
+    with closing(get_reklamacje_db()) as conn:
+        conn.execute(update_sql, (note_text, note_date, note_id, claim_id))
+        conn.commit()
+        notes = fetch_notes(conn, claim_id)
+    return jsonify({"success": True, "notes": notes})
+
+
+@app.route('/api/reklamacje', methods=['GET', 'POST'])
+def reklamacje_api():
+    if request.method == 'POST':
+        payload = request.get_json(silent=True) or {}
+        errors = reklamację_required_errors(payload)
+        if errors:
+            return jsonify({"success": False, "error": "Wymagane: " + ", ".join(errors)}), 400
+
+        status = (payload.get("status") or REKLAMACJE_STATUSES[0]).strip()
+        if status not in REKLAMACJE_STATUSES:
+            status = REKLAMACJE_STATUSES[0]
+
+        claim_id = uuid.uuid4().hex[:10]
+        now_ts = datetime.datetime.utcnow().isoformat() + "Z"
+        reported_at = parse_date(payload.get("reported_at")) or datetime.datetime.utcnow().date().isoformat()
+        closed_at = parse_date(payload.get("closed_at"))
+        if status == "Zamknięta" and not closed_at:
+            closed_at = datetime.datetime.utcnow().date().isoformat()
+
+        parts_items, _parts_text = normalize_list_field(payload.get("parts_list"))
+        missing_items, missing_text = normalize_list_field(payload.get("missing_or_damaged_desc"))
+        # Jeśli UI wysyła JSON-listę w polu "missing_or_damaged_desc", zapisujemy czytelny tekst.
+        missing_value = missing_text if missing_text else (payload.get("missing_or_damaged_desc") or "")
+
+        data = {
+            "id": claim_id,
+            "order_no": (payload.get("order_no") or "").strip(),
+            "purchase_date": parse_date(payload.get("purchase_date")),
+            "product_model": (payload.get("product_model") or "").strip(),
+            "customer_name": (payload.get("customer_name") or "").strip(),
+            "email": (payload.get("email") or "").strip(),
+            "phone": (payload.get("phone") or "").strip(),
+            "type": (payload.get("type") or "").strip(),
+            "missing_or_damaged_desc": str(missing_value).strip(),
+            "description": (payload.get("description") or "").strip(),
+            "reported_at": reported_at,
+            "status": status,
+            "decision": (payload.get("decision") or "").strip(),
+            "decision_reason": (payload.get("decision_reason") or "").strip(),
+            "replacement_sent": 1 if normalize_bool(payload.get("replacement_sent")) else 0,
+            "closed_at": closed_at or "",
+            "created_at": now_ts,
+            "updated_at": now_ts,
+        }
+        if not validate_email(data["email"]):
+            return jsonify({"success": False, "error": "Email musi kończyć się na .pl lub .com"}), 400
+        if not validate_phone(data["phone"]):
+            return jsonify({"success": False, "error": "Telefon może zawierać tylko cyfry"}), 400
+        insert_sql = (
+            """
+            INSERT INTO reklamacje (
+                id, order_no, purchase_date, product_model, customer_name, email, phone,
+                type, missing_or_damaged_desc, description, reported_at, status, decision,
+                decision_reason, replacement_sent, closed_at, created_at, updated_at,
+                client, title, details
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            if using_postgres()
+            else """
+            INSERT INTO reklamacje (
+                id, order_no, purchase_date, product_model, customer_name, email, phone,
+                type, missing_or_damaged_desc, description, reported_at, status, decision,
+                decision_reason, replacement_sent, closed_at, created_at, updated_at,
+                client, title, details
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+        )
+        # Jeśli UI zbiera "części" na etapie tworzenia, zapisz je jako parts.
+        # Fallback: jeśli parts_list puste, ale missing_or_damaged_desc było listą, użyj tego.
+        parts_to_insert = parts_items or missing_items
+        parts_insert_sql = (
+            "INSERT INTO reklamacje_parts (id, claim_id, part_name, created_at) VALUES (%s, %s, %s, %s)"
+            if using_postgres()
+            else "INSERT INTO reklamacje_parts (id, claim_id, part_name, created_at) VALUES (?, ?, ?, ?)"
+        )
+        with closing(get_reklamacje_db()) as conn:
+            conn.execute(
+                insert_sql,
+                (
+                    data["id"],
+                    data["order_no"],
+                    data["purchase_date"],
+                    data["product_model"],
+                    data["customer_name"],
+                    data["email"],
+                    data["phone"],
+                    data["type"],
+                    data["missing_or_damaged_desc"],
+                    data["description"],
+                    data["reported_at"],
+                    data["status"],
+                    data["decision"],
+                    data["decision_reason"],
+                    data["replacement_sent"],
+                    data["closed_at"],
+                    data["created_at"],
+                    data["updated_at"],
+                    data["customer_name"],
+                    data["type"],
+                    data["description"],
+                ),
+            )
+            if parts_to_insert:
+                for part in parts_to_insert:
+                    part_id = uuid.uuid4().hex[:10]
+                    conn.execute(parts_insert_sql, (part_id, data["id"], part, now_ts))
+            conn.commit()
+        data["days_open"] = compute_days_open(data["reported_at"], data["closed_at"])
+        return jsonify({"success": True, "item": data}), 201
+
+    status_filter = (request.args.get("status") or "").strip()
+    type_filter = (request.args.get("type") or "").strip()
+    query = (request.args.get("q") or "").strip().lower()
+    sort = (request.args.get("sort") or "days_open_desc").strip()
+
+    with closing(get_reklamacje_db()) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                id, order_no, purchase_date, product_model, customer_name, email, phone,
+                type, missing_or_damaged_desc, description, reported_at, status, decision,
+                decision_reason, replacement_sent, closed_at, created_at, updated_at
+            FROM reklamacje
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+
+    claim_ids = []
+    items = []
+    for row in rows:
+        item = {
+            "id": row["id"],
+            "order_no": row["order_no"] or "",
+            "purchase_date": row["purchase_date"] or "",
+            "product_model": row["product_model"] or "",
+            "customer_name": row["customer_name"] or "",
+            "email": row["email"] or "",
+            "phone": row["phone"] or "",
+            "type": row["type"] or "",
+            "missing_or_damaged_desc": row["missing_or_damaged_desc"] or "",
+            "description": row["description"] or "",
+            "reported_at": row["reported_at"] or "",
+            "status": row["status"] or "",
+            "decision": row["decision"] or "",
+            "decision_reason": row["decision_reason"] or "",
+            "replacement_sent": bool(row["replacement_sent"]),
+            "closed_at": row["closed_at"] or "",
+            "created_at": row["created_at"] or "",
+            "updated_at": row["updated_at"] or "",
+        }
+        item["days_open"] = compute_days_open(item["reported_at"], item["closed_at"])
+        items.append(item)
+        claim_ids.append(item["id"])
+
+    with closing(get_reklamacje_db()) as conn:
+        last_notes = fetch_last_notes(conn, claim_ids)
+    for item in items:
+        note = last_notes.get(item["id"])
+        item["last_note_text"] = note["note_text"] if note else ""
+        item["last_note_date"] = note["note_date"] if note else ""
+
+    if status_filter:
+        items = [it for it in items if it["status"] == status_filter]
+    if type_filter:
+        items = [it for it in items if it["type"] == type_filter]
+    if query:
+        def match(it):
+            hay = " ".join([
+                it["order_no"], it["email"], it["customer_name"], it["product_model"], it["missing_or_damaged_desc"]
+            ]).lower()
+            return query in hay
+        items = [it for it in items if match(it)]
+
+    if sort == "days_open_desc":
+        items.sort(key=lambda it: it["days_open"], reverse=True)
+
+    return jsonify({
+        "success": True,
+        "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "items": items,
+        "statuses": REKLAMACJE_STATUSES,
+        "types": REKLAMACJE_TYPES,
+        "decisions": REKLAMACJE_DECISIONS,
+    })
+
+
+@app.route('/api/reklamacje/<claim_id>', methods=['GET', 'PUT', 'DELETE'])
+def reklamacje_detail_api(claim_id):
+    if request.method == 'DELETE':
+        # Usuń reklamację i powiązane dane
+        with closing(get_reklamacje_db()) as conn:
+            # Usuń załączniki (pliki)
+            attachments_sql = (
+                "SELECT file_path FROM reklamacje_attachments WHERE claim_id = %s"
+                if using_postgres()
+                else "SELECT file_path FROM reklamacje_attachments WHERE claim_id = ?"
+            )
+            attachments = conn.execute(attachments_sql, (claim_id,)).fetchall()
+            for att in attachments:
+                file_path = att["file_path"] if isinstance(att, dict) else att[0]
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                except Exception:
+                    pass
+            
+            # Usuń z bazy danych
+            delete_attachments_sql = (
+                "DELETE FROM reklamacje_attachments WHERE claim_id = %s"
+                if using_postgres()
+                else "DELETE FROM reklamacje_attachments WHERE claim_id = ?"
+            )
+            delete_parts_sql = (
+                "DELETE FROM reklamacje_parts WHERE claim_id = %s"
+                if using_postgres()
+                else "DELETE FROM reklamacje_parts WHERE claim_id = ?"
+            )
+            delete_claim_sql = (
+                "DELETE FROM reklamacje WHERE id = %s"
+                if using_postgres()
+                else "DELETE FROM reklamacje WHERE id = ?"
+            )
+            conn.execute(delete_attachments_sql, (claim_id,))
+            conn.execute(delete_parts_sql, (claim_id,))
+            conn.execute(delete_claim_sql, (claim_id,))
+            conn.commit()
+        
+        # Usuń katalog z plikami
+        upload_dir = Path(app.config["REKLAMACJE_UPLOADS"]) / claim_id
+        try:
+            if upload_dir.exists():
+                import shutil
+                shutil.rmtree(upload_dir)
+        except Exception:
+            pass
+        
+        return jsonify({"success": True})
+    
+    if request.method == 'PUT':
+        payload = request.get_json(silent=True) or {}
+        status = (payload.get("status") or "").strip()
+        if status and status not in REKLAMACJE_STATUSES:
+            return jsonify({"success": False, "error": "Nieprawidłowy status"}), 400
+
+        email = (payload.get("email") or "").strip()
+        phone = (payload.get("phone") or "").strip()
+        if email and not validate_email(email):
+            return jsonify({"success": False, "error": "Email musi kończyć się na .pl lub .com"}), 400
+        if phone and not validate_phone(phone):
+            return jsonify({"success": False, "error": "Telefon może zawierać tylko cyfry"}), 400
+
+        reported_at = parse_date(payload.get("reported_at"))
+        closed_at = parse_date(payload.get("closed_at"))
+        if status == "Zamknięta" and not closed_at:
+            closed_at = datetime.datetime.utcnow().date().isoformat()
+
+        now_ts = datetime.datetime.utcnow().isoformat() + "Z"
+        update_sql = (
+            """
+            UPDATE reklamacje SET
+                order_no = %s,
+                purchase_date = %s,
+                product_model = %s,
+                customer_name = %s,
+                email = %s,
+                phone = %s,
+                type = %s,
+                missing_or_damaged_desc = %s,
+                description = %s,
+                reported_at = %s,
+                status = %s,
+                decision = %s,
+                decision_reason = %s,
+                replacement_sent = %s,
+                closed_at = %s,
+                updated_at = %s,
+                client = %s,
+                title = %s,
+                details = %s
+            WHERE id = %s
+            """
+            if using_postgres()
+            else """
+            UPDATE reklamacje SET
+                order_no = ?,
+                purchase_date = ?,
+                product_model = ?,
+                customer_name = ?,
+                email = ?,
+                phone = ?,
+                type = ?,
+                missing_or_damaged_desc = ?,
+                description = ?,
+                reported_at = ?,
+                status = ?,
+                decision = ?,
+                decision_reason = ?,
+                replacement_sent = ?,
+                closed_at = ?,
+                updated_at = ?,
+                client = ?,
+                title = ?,
+                details = ?
+            WHERE id = ?
+            """
+        )
+        with closing(get_reklamacje_db()) as conn:
+            conn.execute(
+                update_sql,
+                (
+                    (payload.get("order_no") or "").strip(),
+                    parse_date(payload.get("purchase_date")),
+                    (payload.get("product_model") or "").strip(),
+                    (payload.get("customer_name") or "").strip(),
+                    email,
+                    phone,
+                    (payload.get("type") or "").strip(),
+                    (payload.get("missing_or_damaged_desc") or "").strip(),
+                    (payload.get("description") or "").strip(),
+                    reported_at,
+                    status or "",
+                    (payload.get("decision") or "").strip(),
+                    (payload.get("decision_reason") or "").strip(),
+                    1 if normalize_bool(payload.get("replacement_sent")) else 0,
+                    closed_at or "",
+                    now_ts,
+                    (payload.get("customer_name") or "").strip(),
+                    (payload.get("type") or "").strip(),
+                    (payload.get("description") or "").strip(),
+                    claim_id,
+                ),
+            )
+            conn.commit()
+        return jsonify({"success": True})
+
+    with closing(get_reklamacje_db()) as conn:
+        row = conn.execute(
+            """
+            SELECT
+                id, order_no, purchase_date, product_model, customer_name, email, phone,
+                type, missing_or_damaged_desc, description, reported_at, status, decision,
+                decision_reason, replacement_sent, closed_at, created_at, updated_at
+            FROM reklamacje
+            WHERE id = %s
+            """ if using_postgres() else """
+            SELECT
+                id, order_no, purchase_date, product_model, customer_name, email, phone,
+                type, missing_or_damaged_desc, description, reported_at, status, decision,
+                decision_reason, replacement_sent, closed_at, created_at, updated_at
+            FROM reklamacje
+            WHERE id = ?
+            """,
+            (claim_id,),
+        ).fetchone()
+        if not row:
+            return jsonify({"success": False, "error": "Nie znaleziono reklamacji"}), 404
+        item = {
+            "id": row["id"],
+            "order_no": row["order_no"] or "",
+            "purchase_date": row["purchase_date"] or "",
+            "product_model": row["product_model"] or "",
+            "customer_name": row["customer_name"] or "",
+            "email": row["email"] or "",
+            "phone": row["phone"] or "",
+            "type": row["type"] or "",
+            "missing_or_damaged_desc": row["missing_or_damaged_desc"] or "",
+            "description": row["description"] or "",
+            "reported_at": row["reported_at"] or "",
+            "status": row["status"] or "",
+            "decision": row["decision"] or "",
+            "decision_reason": row["decision_reason"] or "",
+            "replacement_sent": bool(row["replacement_sent"]),
+            "closed_at": row["closed_at"] or "",
+            "created_at": row["created_at"] or "",
+            "updated_at": row["updated_at"] or "",
+        }
+        item["days_open"] = compute_days_open(item["reported_at"], item["closed_at"])
+        item["parts"] = fetch_parts(conn, claim_id)
+        item["attachments"] = fetch_attachments(conn, claim_id)
+        item["notes"] = fetch_notes(conn, claim_id)
+    return jsonify({"success": True, "item": item})
+
+
+@app.route('/api/reklamacje/<claim_id>/parts', methods=['POST'])
+def reklamacje_parts_api(claim_id):
+    payload = request.get_json(silent=True) or {}
+    part_name = (payload.get("part_name") or "").strip()
+    if not part_name:
+        return jsonify({"success": False, "error": "Wymagana nazwa części"}), 400
+    part_id = uuid.uuid4().hex[:10]
+    now_ts = datetime.datetime.utcnow().isoformat() + "Z"
+    sent = 1 if normalize_bool(payload.get("sent")) else 0
+    with closing(get_reklamacje_db()) as conn:
+        # Sprawdź czy kolumna sent istnieje, jeśli nie - dodaj
+        try:
+            conn.execute("SELECT sent FROM reklamacje_parts LIMIT 1")
+        except:
+            if using_postgres():
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            try:
+                conn.execute("ALTER TABLE reklamacje_parts ADD COLUMN sent INTEGER NOT NULL DEFAULT 0")
+                conn.commit()
+            except:
+                pass
+        insert_sql = (
+            "INSERT INTO reklamacje_parts (id, claim_id, part_name, sent, created_at) VALUES (%s, %s, %s, %s, %s)"
+            if using_postgres()
+            else "INSERT INTO reklamacje_parts (id, claim_id, part_name, sent, created_at) VALUES (?, ?, ?, ?, ?)"
+        )
+        conn.execute(insert_sql, (part_id, claim_id, part_name, sent, now_ts))
+        conn.commit()
+    return jsonify({"success": True, "item": {"id": part_id, "part_name": part_name, "sent": bool(sent), "created_at": now_ts}}), 201
+
+
+@app.route('/api/reklamacje/<claim_id>/parts/<part_id>', methods=['PUT', 'DELETE'])
+def reklamacje_parts_update_api(claim_id, part_id):
+    if request.method == 'PUT':
+        payload = request.get_json(silent=True) or {}
+        sent = 1 if normalize_bool(payload.get("sent")) else 0
+        with closing(get_reklamacje_db()) as conn:
+            # Sprawdź czy kolumna sent istnieje, jeśli nie - dodaj
+            try:
+                conn.execute("SELECT sent FROM reklamacje_parts LIMIT 1")
+            except:
+                if using_postgres():
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                try:
+                    conn.execute("ALTER TABLE reklamacje_parts ADD COLUMN sent INTEGER NOT NULL DEFAULT 0")
+                    conn.commit()
+                except:
+                    pass
+            update_sql = (
+                "UPDATE reklamacje_parts SET sent = %s WHERE id = %s AND claim_id = %s"
+                if using_postgres()
+                else "UPDATE reklamacje_parts SET sent = ? WHERE id = ? AND claim_id = ?"
+            )
+            conn.execute(update_sql, (sent, part_id, claim_id))
+            conn.commit()
+        return jsonify({"success": True})
+    else:  # DELETE
+        delete_sql = (
+            "DELETE FROM reklamacje_parts WHERE id = %s AND claim_id = %s"
+            if using_postgres()
+            else "DELETE FROM reklamacje_parts WHERE id = ? AND claim_id = ?"
+        )
+        with closing(get_reklamacje_db()) as conn:
+            conn.execute(delete_sql, (part_id, claim_id))
+            conn.commit()
+        return jsonify({"success": True})
+
+
+@app.route('/api/reklamacje/<claim_id>/attachments', methods=['GET', 'POST'])
+def reklamacje_attachments_api(claim_id):
+    if request.method == 'GET':
+        # Pobierz listę załączników dla reklamacji
+        with closing(get_reklamacje_db()) as conn:
+            attachments = fetch_attachments(conn, claim_id)
+        return jsonify({"success": True, "items": attachments})
+    
+    # POST - dodaj załączniki
+    files = request.files.getlist("files")
+    if not files:
+        return jsonify({"success": False, "error": "Brak plików"}), 400
+    saved = []
+    upload_root = Path(app.config["REKLAMACJE_UPLOADS"]) / claim_id
+    upload_root.mkdir(parents=True, exist_ok=True)
+    now_ts = datetime.datetime.utcnow().isoformat() + "Z"
+    insert_sql = (
+        "INSERT INTO reklamacje_attachments (id, claim_id, file_path, original_name, created_at) VALUES (%s, %s, %s, %s, %s)"
+        if using_postgres()
+        else "INSERT INTO reklamacje_attachments (id, claim_id, file_path, original_name, created_at) VALUES (?, ?, ?, ?, ?)"
+    )
+    with closing(get_reklamacje_db()) as conn:
+        for file in files:
+            if not file or not file.filename:
+                continue
+            filename = secure_filename(file.filename)
+            if not allowed_file(filename):
+                continue
+            file_id = uuid.uuid4().hex[:10]
+            stored_name = f"{file_id}_{filename}"
+            file_path = str(upload_root / stored_name)
+            file.save(file_path)
+            conn.execute(insert_sql, (file_id, claim_id, file_path, filename, now_ts))
+            saved.append({"id": file_id, "original_name": filename, "created_at": now_ts})
+        conn.commit()
+    return jsonify({"success": True, "items": saved})
+
+
+@app.route('/api/reklamacje/<claim_id>/attachments/<attachment_id>', methods=['GET'])
+def reklamacje_attachment_download(claim_id, attachment_id):
+    select_sql = (
+        "SELECT file_path, original_name FROM reklamacje_attachments WHERE id = %s AND claim_id = %s"
+        if using_postgres()
+        else "SELECT file_path, original_name FROM reklamacje_attachments WHERE id = ? AND claim_id = ?"
+    )
+    with closing(get_reklamacje_db()) as conn:
+        row = conn.execute(select_sql, (attachment_id, claim_id)).fetchone()
+        if not row:
+            return jsonify({"success": False, "error": "Brak pliku"}), 404
+        file_path = row["file_path"]
+        original_name = row["original_name"]
+    directory = os.path.dirname(file_path)
+    filename = os.path.basename(file_path)
+    return send_from_directory(directory, filename, as_attachment=True, download_name=original_name)
+
+
+@app.route('/api/reklamacje/<claim_id>/attachments/<attachment_id>', methods=['DELETE'])
+def reklamacje_attachment_delete(claim_id, attachment_id):
+    select_sql = (
+        "SELECT file_path FROM reklamacje_attachments WHERE id = %s AND claim_id = %s"
+        if using_postgres()
+        else "SELECT file_path FROM reklamacje_attachments WHERE id = ? AND claim_id = ?"
+    )
+    delete_sql = (
+        "DELETE FROM reklamacje_attachments WHERE id = %s AND claim_id = %s"
+        if using_postgres()
+        else "DELETE FROM reklamacje_attachments WHERE id = ? AND claim_id = ?"
+    )
+    with closing(get_reklamacje_db()) as conn:
+        row = conn.execute(select_sql, (attachment_id, claim_id)).fetchone()
+        if not row:
+            return jsonify({"success": False, "error": "Brak pliku"}), 404
+        conn.execute(delete_sql, (attachment_id, claim_id))
+        conn.commit()
+    try:
+        os.remove(row["file_path"])
+    except FileNotFoundError:
+        pass
+    return jsonify({"success": True})
+
+
+@app.route('/api/magazyn')
+def magazyn_api():
+    try:
+        rows = fetch_inventory()
+        data = parse_inventory_rows(rows)
+        return jsonify({"success": True, **data})
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+@app.route('/tickets')
+@login_required
+def tickets():
+    return render_template('tickets.html', username=session.get('username', 'Użytkownik'))
+
+@app.route('/availability')
+@login_required
+def availability():
+    return render_template('availability.html', 
+                         sheet_id=GOOGLE_SHEET_ID,
+                         sheet_gid=GOOGLE_SHEET_GID,
+                         username=session.get('username', 'Użytkownik'))
+
+@app.route('/rozmiary')
+def rozmiary():
+    return render_template('rozmiary.html', username=session.get('username', 'Użytkownik'))
+
+@app.route('/magazyn-new')
+def magazyn_new():
+    return render_template('magazyn_new.html', username=session.get('username', 'Użytkownik'))
+
+@app.route('/reklamacje')
+def reklamacje():
+    return render_template('reklamacje.html', username=session.get('username', 'Użytkownik'))
+
+@app.route('/ustawienia')
+def ustawienia():
+    return render_template('ustawienia.html', username=session.get('username', 'Użytkownik'))
+
+# Jawna obsługa plików statycznych (backup)
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory(app.static_folder, filename)
+
+# Dla produkcji (Docker/WSGI)
+application = app
+
+if __name__ == '__main__':
+    # Dla lokalnego uruchomienia
+    app.run(debug=True, port=5000, host='0.0.0.0')

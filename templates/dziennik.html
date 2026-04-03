@@ -1,0 +1,277 @@
+{% extends "base_panel.html" %}
+
+{% block title %}Dziennik zdarzeń{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h2>Dziennik zdarzeń</h2>
+            <style>
+                .event-filter-row {
+                    display: flex;
+                    flex-wrap: nowrap;
+                    gap: 8px;
+                    align-items: flex-end;
+                }
+                .event-filter-row .form-label {
+                    font-size: 11px;
+                    margin-bottom: 4px;
+                }
+                .event-filter {
+                    font-size: 11px;
+                    padding: 4px 8px;
+                    height: 30px;
+                    min-width: 120px;
+                }
+                .event-filter-date {
+                    min-width: 130px;
+                }
+                .event-filter-user,
+                .event-filter-action,
+                .event-filter-ip {
+                    min-width: 140px;
+                }
+                .event-filter-export {
+                    font-size: 11px;
+                    height: 30px;
+                    padding: 4px 10px;
+                    white-space: nowrap;
+                }
+                .event-accordion-header .accordion-button {
+                    background: #3a3a3a;
+                    color: #fff;
+                    font-size: 11px;
+                    font-weight: 500;
+                    padding: 6px 10px;
+                }
+                .event-accordion-header .accordion-button:not(.collapsed) {
+                    background: #3a3a3a;
+                    color: #fff;
+                }
+                .event-accordion-header .accordion-button::after {
+                    filter: brightness(0) invert(1);
+                }
+                .event-user-name {
+                    font-weight: 600;
+                }
+                .event-user-areki { color: #0f6cbd; }
+                .event-user-marzena { color: #7b2cbf; }
+            </style>
+            <div class="card mt-3">
+                <div class="card-body">
+                    <p class="text-muted">Historia zmian z datą, godziną i opisem akcji.</p>
+                    <div class="event-filter-row mb-3">
+                        <div>
+                            <label class="form-label">Data od</label>
+                            <input type="date" class="form-control event-filter event-filter-date" id="filter-date-from">
+                        </div>
+                        <div>
+                            <label class="form-label">Data do</label>
+                            <input type="date" class="form-control event-filter event-filter-date" id="filter-date-to">
+                        </div>
+                        <div>
+                            <label class="form-label">Użytkownik</label>
+                            <select class="form-select event-filter event-filter-user" id="filter-user">
+                                <option value="">Wszyscy</option>
+                                {% set seen_users = [] %}
+                                {% for ev in events %}
+                                    {% if ev.username and ev.username not in seen_users %}
+                                        {% set _ = seen_users.append(ev.username) %}
+                                        <option value="{{ ev.username }}">{{ ev.username }}</option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label">Akcja</label>
+                            <select class="form-select event-filter event-filter-action" id="filter-action">
+                                <option value="">Wszystkie</option>
+                                {% set seen_actions = [] %}
+                                {% for ev in events %}
+                                    {% if ev.action and ev.action not in seen_actions %}
+                                        {% set _ = seen_actions.append(ev.action) %}
+                                        <option value="{{ ev.action }}">{{ ev.action }}</option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label">IP</label>
+                            <input type="text" class="form-control event-filter event-filter-ip" id="filter-ip" placeholder="np. 192.168.1.10">
+                        </div>
+                        <div>
+                            <label class="form-label">&nbsp;</label>
+                            <button class="btn btn-outline-secondary event-filter-export" id="export-csv-btn">
+                                <i class="bi bi-download me-1"></i>Eksport CSV
+                            </button>
+                        </div>
+                    </div>
+                    {% if events and events|length > 0 %}
+                        {% set day_list = [] %}
+                        {% for ev in events %}
+                            {% set ev_date = (ev.created_at or '')[:10] %}
+                            {% if ev_date and ev_date not in day_list %}
+                                {% set _ = day_list.append(ev_date) %}
+                            {% endif %}
+                        {% endfor %}
+                        <div class="accordion" id="eventAccordion">
+                            {% for day in day_list %}
+                                {% set section_label = day %}
+                                {% if day == today_date %}
+                                    {% set section_label = 'Dziś' %}
+                                {% elif day == yesterday_date %}
+                                    {% set section_label = 'Wczoraj' %}
+                                {% endif %}
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header event-accordion-header" id="heading-{{ loop.index }}">
+                                        <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ loop.index }}">
+                                            {{ section_label }}
+                                            {% if section_label not in ['Dziś', 'Wczoraj'] %}
+                                                <span class="ms-2 text-white-50">{{ day }}</span>
+                                            {% endif %}
+                                        </button>
+                                    </h2>
+                                    <div id="collapse-{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" data-bs-parent="#eventAccordion">
+                                        <div class="accordion-body p-0">
+                                            <div class="table-responsive">
+                                                <table class="table table-hover align-middle mb-0">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Data i godzina</th>
+                                                            <th>Użytkownik</th>
+                                                            <th>Akcja</th>
+                                                            <th>Szczegóły</th>
+                                                            <th>IP</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for ev in events %}
+                                                            {% set ev_date = (ev.created_at or '')[:10] %}
+                                                            {% if ev_date == day %}
+                                                                <tr>
+                                                                    <td class="event-time" data-iso="{{ ev.created_at }}">{{ ev.created_at }}</td>
+                                                                    <td class="event-user" data-user="{{ ev.username or '' }}">
+                                                                        <span class="event-user-name">{{ ev.username or '-' }}</span>
+                                                                    </td>
+                                                                    <td class="event-action" data-action="{{ ev.action }}">{{ ev.action }}</td>
+                                                                    <td>{{ ev.details or '-' }}</td>
+                                                                    <td class="event-ip" data-ip="{{ ev.ip or '' }}">{{ ev.ip or '-' }}</td>
+                                                                </tr>
+                                                            {% endif %}
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-center text-muted py-3">Brak zdarzeń do wyświetlenia.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  const dateFrom = document.getElementById('filter-date-from');
+  const dateTo = document.getElementById('filter-date-to');
+  const userSelect = document.getElementById('filter-user');
+  const actionSelect = document.getElementById('filter-action');
+  const ipInput = document.getElementById('filter-ip');
+  const exportBtn = document.getElementById('export-csv-btn');
+
+  const rows = Array.from(document.querySelectorAll('tbody tr')).filter((row) => {
+    return row.querySelector('.event-time');
+  });
+
+  function toLocalPl(iso) {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    return date.toLocaleString('pl-PL');
+  }
+
+  function getRowDate(row) {
+    const iso = row.querySelector('.event-time')?.getAttribute('data-iso') || '';
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function applyFilters() {
+    const fromVal = dateFrom?.value || '';
+    const toVal = dateTo?.value || '';
+    const userVal = userSelect?.value || '';
+    const actionVal = actionSelect?.value || '';
+    const ipVal = (ipInput?.value || '').trim();
+
+    const fromDate = fromVal ? new Date(fromVal + 'T00:00:00') : null;
+    const toDate = toVal ? new Date(toVal + 'T23:59:59') : null;
+
+    rows.forEach((row) => {
+      const rowDate = getRowDate(row);
+      const rowUser = row.querySelector('.event-user')?.getAttribute('data-user') || '';
+      const rowAction = row.querySelector('.event-action')?.getAttribute('data-action') || '';
+      const rowIp = row.querySelector('.event-ip')?.getAttribute('data-ip') || '';
+
+      let visible = true;
+      if (fromDate && rowDate && rowDate < fromDate) visible = false;
+      if (toDate && rowDate && rowDate > toDate) visible = false;
+      if (userVal && rowUser !== userVal) visible = false;
+      if (actionVal && rowAction !== actionVal) visible = false;
+      if (ipVal && rowIp !== ipVal) visible = false;
+
+      row.style.display = visible ? '' : 'none';
+    });
+
+    // Ukryj puste sekcje akordeonu po filtrowaniu
+    document.querySelectorAll('.accordion-item').forEach((item) => {
+      const visibleRows = item.querySelectorAll('tbody tr:not([style*="display: none"])');
+      item.style.display = visibleRows.length ? '' : 'none';
+    });
+  }
+
+  document.querySelectorAll('.event-time').forEach((cell) => {
+    const iso = cell.getAttribute('data-iso');
+    if (iso) {
+      cell.textContent = toLocalPl(iso);
+    }
+  });
+
+  document.querySelectorAll('.event-user').forEach((cell) => {
+    const name = (cell.getAttribute('data-user') || '').toLowerCase();
+    const nameSpan = cell.querySelector('.event-user-name');
+    if (!nameSpan) return;
+    if (name === 'areki') {
+      nameSpan.classList.add('event-user-areki');
+    } else if (name === 'marzena') {
+      nameSpan.classList.add('event-user-marzena');
+    }
+  });
+
+  [dateFrom, dateTo, userSelect, actionSelect].forEach((el) => {
+    if (!el) return;
+    el.addEventListener('change', applyFilters);
+  });
+
+  ipInput?.addEventListener('input', applyFilters);
+
+  exportBtn?.addEventListener('click', () => {
+    const params = new URLSearchParams();
+    if (dateFrom?.value) params.set('date_from', dateFrom.value);
+    if (dateTo?.value) params.set('date_to', dateTo.value);
+    if (userSelect?.value) params.set('user', userSelect.value);
+    if (actionSelect?.value) params.set('action', actionSelect.value);
+    if (ipInput?.value) params.set('ip', ipInput.value.trim());
+    const url = `/api/event-log/export.csv?${params.toString()}`;
+    window.location.href = url;
+  });
+})();
+</script>
+{% endblock %}

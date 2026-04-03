@@ -1,0 +1,56 @@
+Projekt: przeglądarka CSV na Vite (lokalnie, localhost)
+
+Użyj tego tekstu jako pierwszej wiadomości w NOWYM agencie w Cursor, w projekcie, gdzie mam pełne prawa zapisu:
+
+---
+
+Chcę prostą aplikację webową w Vite (vanilla JS), która:
+- działa lokalnie na localhost (npm run dev),
+- wczytuje DOWOLNY plik CSV z dysku (za każdym razem inny),
+- pokazuje dane w tabeli,
+- ma wyszukiwarkę „live” (filtruje podczas pisania),
+- ma filtr po STATUSIE (Aktywny / Nieaktywny / Wszystkie),
+- pozwala sortować po kliknięciu w nagłówek kolumny (rosnąco/malejąco),
+- ma paginację z wyborem ilości rekordów na stronę (100 / 200 / 500 / Wszystkie).
+
+Szczegóły:
+- Plik CSV:
+  - pierwszy wiersz = nagłówki,
+  - jedna z kolumn to status (np. nazwa nagłówka „Status”, „status”, „Aktywny” itp.),
+  - wartości statusu typu „aktywny”, „nieaktywny” (mogą też być 1/0, tak/nie – można znormalizować).
+- Wyszukiwanie:
+  - jedno pole wyszukiwania,
+  - filtruje po tekście we WSZYSTKICH kolumnach (live).
+- Filtr statusu:
+  - dropdown: Wszystkie / Aktywny / Nieaktywny,
+  - jeśli w CSV nie ma kolumny status, filtr może być ukryty lub ignorowany.
+- Sortowanie:
+  - klik w nagłówek danej kolumny sortuje po tej kolumnie,
+  - kolejne kliknięcie odwraca kierunek (▲/▼),
+  - liczby sortowane numerycznie, teksty alfabetycznie (locale „pl”).
+- Paginacja:
+  - wybór rozmiaru strony: 100 / 200 / 500 / Wszystkie (0 = brak paginacji),
+  - przyciski „Poprzednia” / „Następna”,
+  - informacja typu „Strona X z Y (N rekordów)”.
+
+Struktura projektu (do utworzenia):
+- package.json – Vite jako devDependency, skrypty: dev, build, preview.
+- vite.config.js – prosta konfiguracja (root = ., outDir = dist).
+- index.html – layout:
+  - wybór pliku CSV,
+  - wyszukiwarka,
+  - filtr statusu,
+  - wybór ilości rekordów na stronę,
+  - tabela z nagłówkami i danymi,
+  - paginacja.
+- src/main.js – logika:
+  - wczytanie CSV (FileReader),
+  - wykrycie separatora (przecinek/średnik/tab),
+  - parsowanie nagłówków i wierszy,
+  - wyszukiwanie, filtrowanie, sortowanie, paginacja, render tabeli.
+- src/style.css – podstawowy, czytelny wygląd (tabela, przyciski, kontrolki).
+
+Proszę:
+1. Utwórz mi tę strukturę Vite od zera w aktualnym katalogu (jeśli mam uprawnienia).
+2. Zaimplementuj całą logikę w taki sposób, żeby po npm install + npm run dev od razu działała przeglądarka CSV zgodnie z opisem.
+

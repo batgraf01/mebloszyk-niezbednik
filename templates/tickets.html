@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Zgłoszenia | Panel reklamacji{% endblock %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item active">Reklamacje</li>
+{% endblock %}
+
+{% block content %}
+<section class="tickets-page">
+    <div class="panel tickets-header" style="padding:1rem 1.5rem;">
+        <div>
+            <p style="margin:0;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.2rem;font-size:0.7rem;">
+                Zgłoszenia
+            </p>
+            <h2 style="margin:0;color:var(--text-main);">Rejestr spraw</h2>
+        </div>
+        <div class="top-bar__group" style="justify-content:flex-end;">
+            <select class="search-field" style="width:auto;">
+                <option>Status: wszystkie</option>
+                <option>Nowe</option>
+                <option>W trakcie</option>
+                <option>Zamknięte</option>
+            </select>
+            <select class="search-field" style="width:auto;">
+                <option>Miesiąc: wszystkie</option>
+                <option>Listopad 2025</option>
+                <option>Październik 2025</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="tickets-layout">
+        <div class="panel" style="padding:1.2rem;">
+            <div class="ticket-list">
+                {% for ticket in tickets %}
+                    <button class="ticket-item" data-status="{{ ticket.status }}">
+                        <div class="ticket-item__client">
+                            <span>{{ ticket.client }}</span>
+                            <span>{{ ticket.date }}</span>
+                        </div>
+                        <div class="ticket-item__number">{{ ticket.number }}</div>
+                        <div class="ticket-item__title">{{ ticket.title }}</div>
+                        <div class="ticket-item__meta">
+                            <span>{{ ticket.status }}</span>
+                            <span>{{ ticket.channel }}</span>
+                        </div>
+                    </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="panel ticket-details">
+            <h3>Szczegóły zgłoszenia</h3>
+            <p style="color:var(--text-muted);margin-bottom:1.5rem;">
+                W finalnej wersji panel pokaże dane po kliknięciu rekordu po lewej (AJAX / HTMX).
+            </p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;">
+                <div class="panel" style="padding:1rem;">
+                    <p style="color:var(--text-muted);text-transform:uppercase;letter-spacing:0.2rem;font-size:0.7rem;">Klient</p>
+                    <p style="font-weight:600;margin:0;">Jan Kowalski</p>
+                    <small style="color:var(--text-muted);">jan.kowalski@example.com</small>
+                </div>
+                <div class="panel" style="padding:1rem;">
+                    <p style="color:var(--text-muted);text-transform:uppercase;letter-spacing:0.2rem;font-size:0.7rem;">Produkt</p>
+                    <p style="font-weight:600;margin:0;">Pergola Skyline 3×4</p>
+                    <small style="color:var(--text-muted);">Zadbano / DTS</small>
+                </div>
+            </div>
+            <hr style="margin:1.5rem 0;border:none;border-top:1px solid var(--card-border);">
+            <div class="ticket-actions">
+                <button class="btn">Drukuj</button>
+                <button class="btn">Wyślij e-mail</button>
+                <button class="btn">Zmień status</button>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

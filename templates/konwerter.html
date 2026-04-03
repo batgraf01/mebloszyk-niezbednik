@@ -1,0 +1,694 @@
+{% extends "base_panel.html" %}
+{% block title %}Konwerter{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-12 col-lg-4 mb-3">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="mb-2 h6">Import CSV</h2>
+        <form id="converter-upload-form">
+          <div class="mb-2">
+            <label for="file-input" class="form-label mb-1">Wybierz plik CSV z dysku</label>
+            <input type="file" id="file-input" accept=".csv" class="form-control form-control-sm" />
+          </div>
+          <div class="mb-2">
+            <label for="import-label" class="form-label mb-1">Etykieta (opcjonalnie)</label>
+            <input type="text" id="import-label" class="form-control form-control-sm" placeholder="np. Sklep 2026‑02‑06" />
+          </div>
+          <button type="button" id="upload-and-load-btn" class="btn btn-primary btn-sm">
+            Wgraj i otwórz
+          </button>
+          <div id="upload-message" class="small mt-2"></div>
+          <div id="upload-progress-wrapper" class="progress mt-1" style="height:6px; display:none;">
+            <div id="upload-progress-bar" class="progress-bar" role="progressbar" style="width:0%;"></div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-body">
+        <h2 class="mb-2 h6">Zaimportowane pliki</h2>
+        <div id="sessions-empty" class="text-muted small">Brak zaimportowanych plików.</div>
+        <div class="table-responsive" style="max-height:40vh;overflow:auto;display:none;" id="sessions-table-wrapper">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Nazwa</th>
+                <th>Data</th>
+                <th>Rozmiar</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="sessions-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="mb-3">Konwerter CSV</h2>
+        <p class="text-muted">
+          Wybierz plik CSV z dysku, a poniżej wyświetli się tabela z danymi, filtrowaniem i paginacją.
+        </p>
+
+        <div class="app" style="margin-top: 1rem;">
+          <header class="controls" style="display:flex;flex-wrap:wrap;gap:0.75rem;">
+            <div class="control-row" style="display:flex;align-items:center;gap:0.5rem;">
+              <label for="search" class="form-label mb-0">Wyszukaj:</label>
+              <input type="text" id="search" class="form-control form-control-sm" placeholder="Filtruj po tekście..." disabled style="min-width:220px;" />
+            </div>
+            <div class="control-row" id="status-filter-row" style="display:none;align-items:center;gap:0.5rem;">
+              <label for="status-filter" class="form-label mb-0">Status:</label>
+              <select id="status-filter" class="form-select form-select-sm" style="min-width:150px;">
+                <option value="">Wszystkie</option>
+                <option value="aktywny">Aktywny</option>
+                <option value="nieaktywny">Nieaktywny</option>
+              </select>
+            </div>
+            <div class="control-row" style="display:flex;align-items:center;gap:0.5rem;">
+              <label for="column-filter" class="form-label mb-0">Filtr kolumny:</label>
+              <select id="column-filter" class="form-select form-select-sm" disabled style="min-width:160px;">
+                <option value="">Wybierz kolumnę</option>
+              </select>
+              <input type="text" id="column-filter-value" class="form-control form-control-sm" placeholder="Wartość..." disabled style="min-width:160px;" />
+            </div>
+            <div class="control-row" style="display:flex;align-items:center;gap:0.5rem;">
+              <label for="page-size" class="form-label mb-0">Rekordów na stronę:</label>
+              <select id="page-size" class="form-select form-select-sm" style="width:auto;">
+                <option value="100">100</option>
+                <option value="200">200</option>
+                <option value="500">500</option>
+                <option value="0">Wszystkie</option>
+              </select>
+            </div>
+          </header>
+
+          <main style="margin-top:1rem;">
+            <div id="column-filter-info" class="alert alert-info py-1 px-2 mb-2" style="display:none;font-size:11px;"></div>
+            <div class="table-responsive table-wrapper" style="max-height:60vh;overflow:auto;">
+              <table id="data-table" class="table table-sm table-hover mb-0">
+                <thead id="table-head"></thead>
+                <tbody id="table-body"></tbody>
+              </table>
+            </div>
+            <div id="empty-state" class="text-muted small mt-2">Wybierz plik CSV, aby wyświetlić dane.</div>
+          </main>
+
+          <footer class="pagination d-flex align-items-center gap-2 mt-2" id="pagination" style="display:none;">
+            <button type="button" id="prev-btn" class="btn btn-outline-secondary btn-sm" disabled>Poprzednia</button>
+            <span id="page-info" class="small">Strona 1 z 1 (0 rekordów)</span>
+            <button type="button" id="next-btn" class="btn btn-outline-secondary btn-sm" disabled>Następna</button>
+          </footer>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="converterDeleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h6 mb-0">Usuń zaimportowany plik</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">Czy na pewno chcesz usunąć plik <strong id="converter-delete-label"></strong> z listy zaimportowanych?</p>
+        <p class="text-muted small mb-0">Operacja usuwa tylko kopię techniczną w konwerterze – oryginalny plik na dysku pozostaje bez zmian.</p>
+        <div id="converter-delete-message" class="small mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Anuluj</button>
+        <button type="button" class="btn btn-danger btn-sm" id="converter-delete-confirm">Usuń</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// === Stan aplikacji ===
+let rawData = [];           // { headers: [], rows: [] }
+let statusColumn = null;    // indeks kolumny statusu lub null
+let sortColumn = null;
+let sortAsc = true;
+let currentPage = 1;
+let pageSize = 100;
+let columnFilterIndex = null;
+let currentSessionId = null;
+let deleteSessionId = null;
+let deleteModal = null;
+let deleteModalLabel = null;
+let deleteModalMessage = null;
+
+// === Wykrywanie separatora CSV ===
+function detectSeparator(text) {
+  const firstLine = text.split('\\n')[0] || '';
+  const counts = {
+    ',': (firstLine.match(/,/g) || []).length,
+    ';': (firstLine.match(/;/g) || []).length,
+    '\\t': (firstLine.match(/\\t/g) || []).length
+  };
+  const best = Object.entries(counts).reduce((a, b) => a[1] >= b[1] ? a : b);
+  return best[1] > 0 ? best[0] : ',';
+}
+
+// === Parsowanie pojedynczej linii CSV (obsługa cudzysłowów) ===
+function parseCSVLine(line, separator) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      inQuotes = !inQuotes;
+    } else if (inQuotes) {
+      current += c;
+    } else if (c === separator) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+// === Parsowanie całego CSV ===
+function parseCSV(text) {
+  const separator = detectSeparator(text);
+  const lines = text.split(/\\r?\\n/).filter(l => l.trim());
+  if (lines.length === 0) return { headers: [], rows: [] };
+  const headers = parseCSVLine(lines[0], separator);
+  const rows = lines.slice(1).map(line => parseCSVLine(line, separator));
+  return { headers, rows };
+}
+
+// === Wykrywanie kolumny statusu ===
+const STATUS_HEADER_PATTERNS = ['status', 'aktywny', 'stan', 'state', 'aktywność'];
+function findStatusColumn(headers) {
+  const lower = headers.map(h => (h || '').toLowerCase().trim());
+  for (let i = 0; i < lower.length; i++) {
+    if (STATUS_HEADER_PATTERNS.some(p => lower[i].includes(p))) return i;
+  }
+  return null;
+}
+
+// === Normalizacja wartości statusu ===
+function normalizeStatus(val) {
+  if (val == null || val === '') return null;
+  const v = String(val).toLowerCase().trim();
+  if (['aktywny', '1', 'tak', 'yes', 'true', 'active'].includes(v)) return 'aktywny';
+  if (['nieaktywny', '0', 'nie', 'no', 'false', 'inactive'].includes(v)) return 'nieaktywny';
+  return v; // pozostaw oryginał jeśli nie rozpoznany
+}
+
+// === Filtrowanie i sortowanie ===
+function getFilteredAndSortedData() {
+  let rows = rawData.rows.map(row => [...row]);
+  const headers = rawData.headers;
+
+  // Wyszukiwanie
+  const query = document.getElementById('search').value.trim().toLowerCase();
+  if (query) {
+    rows = rows.filter(row => {
+      const rowText = row.join(' ').toLowerCase();
+      return rowText.includes(query);
+    });
+  }
+
+  // Filtr statusu
+  const statusFilter = document.getElementById('status-filter').value;
+  if (statusColumn !== null && statusFilter) {
+    rows = rows.filter(row => {
+      const norm = normalizeStatus(row[statusColumn]);
+      return norm === statusFilter;
+    });
+  }
+
+  // Filtr po wybranej kolumnie
+  const columnFilterValue = document.getElementById('column-filter-value').value.trim().toLowerCase();
+  if (columnFilterIndex !== null && columnFilterValue) {
+    rows = rows.filter(row => {
+      const cell = (row[columnFilterIndex] ?? '').toString().toLowerCase();
+      return cell.includes(columnFilterValue);
+    });
+  }
+
+  // Sortowanie
+  if (sortColumn !== null && headers[sortColumn] !== undefined) {
+    rows.sort((a, b) => {
+      const va = a[sortColumn] ?? '';
+      const vb = b[sortColumn] ?? '';
+      const na = Number(va);
+      const nb = Number(vb);
+      const isNumA = !Number.isNaN(na) && String(va).trim() !== '';
+      const isNumB = !Number.isNaN(nb) && String(vb).trim() !== '';
+      let cmp;
+      if (isNumA && isNumB) {
+        cmp = na - nb;
+      } else {
+        cmp = String(va).localeCompare(String(vb), 'pl');
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+  }
+
+  return rows;
+}
+
+// === Paginacja ===
+function getPaginatedRows(allRows) {
+  if (pageSize <= 0) return allRows;
+  const start = (currentPage - 1) * pageSize;
+  return allRows.slice(start, start + pageSize);
+}
+
+function getTotalPages(totalRows) {
+  if (pageSize <= 0) return 1;
+  return Math.max(1, Math.ceil(totalRows / pageSize));
+}
+
+// === Renderowanie tabeli ===
+function renderTable() {
+  const thead = document.getElementById('table-head');
+  const tbody = document.getElementById('table-body');
+  const emptyState = document.getElementById('empty-state');
+  const pagination = document.getElementById('pagination');
+  const columnFilterInfo = document.getElementById('column-filter-info');
+  const columnFilterValue = document.getElementById('column-filter-value').value.trim();
+
+  if (!rawData.headers.length) {
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    emptyState.style.display = 'block';
+    pagination.style.display = 'none';
+    return;
+  }
+
+  emptyState.style.display = 'none';
+  const allRows = getFilteredAndSortedData();
+  const paginated = getPaginatedRows(allRows);
+  const totalPages = getTotalPages(allRows);
+
+  // Nagłówki
+  thead.innerHTML = rawData.headers.map((h, i) => {
+    const arrow = sortColumn === i ? (sortAsc ? ' ▲' : ' ▼') : '';
+    return `<th data-col=\"${i}\" class=\"sortable\">${escapeHtml(h || '')}${arrow}</th>`;
+  }).join('');
+
+  // Wiersze
+  tbody.innerHTML = paginated.map(row => {
+    let html = '';
+    for (let i = 0; i < rawData.headers.length; i++) {
+      html += `<td>${escapeHtml((row[i] ?? '').toString())}</td>`;
+    }
+    return `<tr>${html}</tr>`;
+  }).join('');
+
+  // Paginacja
+  pagination.style.display = 'flex';
+  document.getElementById('page-info').textContent =
+    `Strona ${currentPage} z ${totalPages} (${allRows.length} rekordów)`;
+  document.getElementById('prev-btn').disabled = currentPage <= 1;
+  document.getElementById('next-btn').disabled = currentPage >= totalPages;
+
+  // Info o filtrze kolumny (nad tabelą)
+  if (columnFilterIndex !== null && columnFilterValue) {
+    columnFilterInfo.textContent = `${columnFilterValue} jest ${allRows.length} szt.`;
+    columnFilterInfo.style.display = 'block';
+  } else {
+    columnFilterInfo.style.display = 'none';
+  }
+
+  // Event listeners na nagłówki
+  thead.querySelectorAll('.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = parseInt(th.dataset.col, 10);
+      if (sortColumn === col) sortAsc = !sortAsc;
+      else { sortColumn = col; sortAsc = true; }
+      renderTable();
+    });
+  });
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+// Pomocnicze: format rozmiaru
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  let v = bytes;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed((i === 0) ? 0 : 1)} ${units[i]}`;
+}
+
+// Wczytanie listy sesji z backendu
+async function loadConverterSessions() {
+  const empty = document.getElementById('sessions-empty');
+  const wrapper = document.getElementById('sessions-table-wrapper');
+  const tbody = document.getElementById('sessions-table-body');
+  if (!tbody) return;
+  try {
+    const res = await fetch('/api/converter/sessions');
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Błąd ładowania listy plików');
+    const sessions = data.sessions || [];
+    if (!sessions.length) {
+      if (empty) empty.style.display = 'block';
+      if (wrapper) wrapper.style.display = 'none';
+      tbody.innerHTML = '';
+      return;
+    }
+    if (empty) empty.style.display = 'none';
+    if (wrapper) wrapper.style.display = 'block';
+    tbody.innerHTML = sessions.map(s => {
+      const date = s.created_at ? s.created_at.replace('T', ' ').replace('Z', '') : '';
+      const size = formatBytes(s.size_bytes || 0);
+      const label = s.name || s.original_filename || s.id;
+      return `
+        <tr>
+          <td>${escapeHtml(label)}</td>
+          <td class="small text-muted">${escapeHtml(date)}</td>
+          <td class="small text-muted">${escapeHtml(size)}</td>
+          <td class="text-end">
+            <button type="button" class="btn btn-primary btn-sm load-session-btn" data-session-id="${s.id}">
+              Otwórz
+            </button>
+            <button type="button" class="btn btn-danger btn-sm ms-1 delete-session-btn" data-session-id="${s.id}" data-session-label="${escapeHtml(label)}">
+              Usuń
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    tbody.querySelectorAll('.load-session-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-session-id');
+        if (!id) return;
+        await loadSessionCsv(id);
+      });
+    });
+    tbody.querySelectorAll('.delete-session-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-session-id');
+        const label = btn.getAttribute('data-session-label') || '';
+        if (!id || !deleteModal || !deleteModalLabel) return;
+        deleteSessionId = id;
+        deleteModalLabel.textContent = label;
+        if (deleteModalMessage) deleteModalMessage.innerHTML = '';
+        deleteModal.show();
+      });
+    });
+  } catch (e) {
+    if (empty) {
+      empty.textContent = 'Błąd podczas ładowania listy plików.';
+      empty.style.display = 'block';
+    }
+    if (wrapper) wrapper.style.display = 'none';
+    tbody.innerHTML = '';
+  }
+}
+
+// Pobranie CSV dla sesji i wczytanie do konwertera
+async function loadSessionCsv(sessionId) {
+  const uploadMessage = document.getElementById('upload-message');
+  if (uploadMessage) {
+    uploadMessage.innerHTML = '<span class="text-muted">Wczytywanie danych...</span>';
+  }
+  try {
+    const res = await fetch(`/api/converter/sessions/${sessionId}/csv`);
+    if (!res.ok) {
+      if (uploadMessage) uploadMessage.innerHTML = '<span class="text-danger">Nie udało się pobrać danych.</span>';
+      return;
+    }
+    const text = await res.text();
+    const parsed = parseCSV(text);
+    rawData = parsed;
+    currentSessionId = sessionId;
+    statusColumn = findStatusColumn(parsed.headers);
+    sortColumn = null;
+    sortAsc = true;
+    currentPage = 1;
+    columnFilterIndex = null;
+    const search = document.getElementById('search');
+    const statusFilter = document.getElementById('status-filter');
+    const columnFilter = document.getElementById('column-filter');
+    const columnFilterValue = document.getElementById('column-filter-value');
+    const statusFilterRow = document.getElementById('status-filter-row');
+    if (search) {
+      search.value = '';
+      search.disabled = false;
+    }
+    if (statusFilter) statusFilter.value = '';
+    if (columnFilterValue) columnFilterValue.value = '';
+
+    if (statusFilterRow) {
+      statusFilterRow.style.display = statusColumn !== null ? 'flex' : 'none';
+    }
+    if (columnFilter) {
+      columnFilter.innerHTML = '<option value=\"\">Wybierz kolumnę</option>';
+      parsed.headers.forEach((h, i) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        opt.textContent = h || `Kolumna ${i + 1}`;
+        columnFilter.appendChild(opt);
+      });
+      columnFilter.disabled = false;
+    }
+    if (columnFilterValue) {
+      columnFilterValue.disabled = false;
+    }
+    renderTable();
+    if (uploadMessage) uploadMessage.innerHTML = '';
+  } catch (e) {
+    if (uploadMessage) uploadMessage.innerHTML = '<span class="text-danger">Błąd podczas wczytywania danych.</span>';
+  }
+}
+
+// === Inicjalizacja ===
+function initCsvConverter() {
+  const fileInput = document.getElementById('file-input');
+  const search = document.getElementById('search');
+  const statusFilter = document.getElementById('status-filter');
+  const columnFilter = document.getElementById('column-filter');
+  const columnFilterValue = document.getElementById('column-filter-value');
+  const pageSizeSelect = document.getElementById('page-size');
+  const prevBtn = document.getElementById('prev-btn');
+  const nextBtn = document.getElementById('next-btn');
+  const statusFilterRow = document.getElementById('status-filter-row');
+  const uploadBtn = document.getElementById('upload-and-load-btn');
+  const uploadMessage = document.getElementById('upload-message');
+  const importLabelInput = document.getElementById('import-label');
+  const deleteModalEl = document.getElementById('converterDeleteModal');
+  deleteModal = deleteModalEl && window.bootstrap ? new bootstrap.Modal(deleteModalEl) : null;
+  deleteModalLabel = document.getElementById('converter-delete-label');
+  deleteModalMessage = document.getElementById('converter-delete-message');
+  const deleteConfirmBtn = document.getElementById('converter-delete-confirm');
+
+  if (!fileInput) return;
+
+  // Parsowanie pliku lokalnie (bez uploadu)
+  function parseFileLocally(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result || '';
+      const parsed = parseCSV(text);
+      rawData = parsed;
+      statusColumn = findStatusColumn(parsed.headers);
+      sortColumn = null;
+      sortAsc = true;
+      currentPage = 1;
+      columnFilterIndex = null;
+      search.value = '';
+      statusFilter.value = '';
+      columnFilterValue.value = '';
+      search.disabled = false;
+      if (statusFilterRow) {
+        statusFilterRow.style.display = statusColumn !== null ? 'flex' : 'none';
+      }
+
+      columnFilter.innerHTML = '<option value=\"\">Wybierz kolumnę</option>';
+      parsed.headers.forEach((h, i) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        opt.textContent = h || `Kolumna ${i + 1}`;
+        columnFilter.appendChild(opt);
+      });
+      columnFilter.disabled = false;
+      columnFilterValue.disabled = false;
+
+      renderTable();
+    };
+    reader.readAsText(file, 'UTF-8');
+  }
+
+  // Upload pliku na backend z paskiem postępu
+  function uploadFileToServer(file) {
+    return new Promise((resolve, reject) => {
+      if (!file) {
+        reject(new Error('Brak pliku'));
+        return;
+      }
+      const formData = new FormData();
+      formData.append('file', file);
+      if (importLabelInput && importLabelInput.value.trim()) {
+        formData.append('label', importLabelInput.value.trim());
+      }
+
+      const progressBar = document.getElementById('upload-progress-bar');
+      const progressWrapper = document.getElementById('upload-progress-wrapper');
+      if (progressBar && progressWrapper) {
+        progressWrapper.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressBar.textContent = '0%';
+      }
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/converter/upload', true);
+
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable || !progressBar || !progressWrapper) return;
+        const percent = Math.round((event.loaded / event.total) * 100);
+        progressBar.style.width = `${percent}%`;
+        progressBar.textContent = `${percent}%`;
+      };
+
+      xhr.onreadystatechange = async () => {
+        if (xhr.readyState === XMLHttpRequest.DONE) {
+          if (progressWrapper) {
+            // zostaw pasek na 100% przez moment
+            setTimeout(() => { progressWrapper.style.display = 'none'; }, 600);
+          }
+          try {
+            const data = JSON.parse(xhr.responseText || '{}');
+            if (!xhr.status.toString().startsWith('2') || !data.success) {
+              const msg = data.error || 'Błąd zapisu na serwerze.';
+              if (uploadMessage) uploadMessage.innerHTML = `<span class=\"text-danger\">${msg}</span>`;
+              reject(new Error(msg));
+            } else {
+              if (uploadMessage) uploadMessage.innerHTML = '<span class=\"text-success\">Plik zapisany na serwerze.</span>';
+              if (data.session_id) {
+                currentSessionId = data.session_id;
+              }
+              await loadConverterSessions();
+              resolve(data.session_id || null);
+            }
+          } catch {
+            if (uploadMessage) uploadMessage.innerHTML = '<span class=\"text-danger\">Błąd odpowiedzi z serwera.</span>';
+            reject(new Error('Błąd odpowiedzi z serwera'));
+          }
+        }
+      };
+
+      xhr.onerror = () => {
+        if (progressWrapper) progressWrapper.style.display = 'none';
+        if (uploadMessage) uploadMessage.innerHTML = '<span class=\"text-danger\">Błąd podczas wgrywania na serwer.</span>';
+        reject(new Error('upload error'));
+      };
+
+      xhr.send(formData);
+    });
+  }
+
+  // Sam wybór pliku nic nie wysyła ani nie parsuje – tylko informacja dla użytkownika
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!uploadMessage) return;
+    if (file) {
+      uploadMessage.innerHTML = `<span class=\"text-muted\">Wybrano plik: ${escapeHtml(file.name)}. Kliknij „Wgraj i otwórz”.</span>`;
+    } else {
+      uploadMessage.innerHTML = '';
+    }
+  });
+
+  if (uploadBtn) {
+    uploadBtn.addEventListener('click', () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        if (uploadMessage) uploadMessage.innerHTML = '<span class=\"text-danger\">Wybierz plik CSV.</span>';
+        return;
+      }
+      if (uploadMessage) uploadMessage.innerHTML = '<span class=\"text-muted\">Przetwarzanie pliku i wgrywanie na serwer...</span>';
+      uploadBtn.disabled = true;
+      fileInput.disabled = true;
+      // Najpierw lokalne wczytanie (szybka informacja wizualna), równolegle upload z paskiem
+      parseFileLocally(file);
+      uploadFileToServer(file)
+        .finally(() => {
+          uploadBtn.disabled = false;
+          fileInput.disabled = false;
+        });
+    });
+  }
+
+  if (deleteConfirmBtn) {
+    deleteConfirmBtn.addEventListener('click', async () => {
+      if (!deleteSessionId) return;
+      try {
+        const res = await fetch(`/api/converter/sessions/${deleteSessionId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) {
+          if (deleteModalMessage) deleteModalMessage.innerHTML = `<span class="text-danger">${escapeHtml(data.error || 'Nie udało się usunąć pliku.')}</span>`;
+          return;
+        }
+        if (currentSessionId === deleteSessionId) {
+          rawData = { headers: [], rows: [] };
+          renderTable();
+          currentSessionId = null;
+        }
+        deleteSessionId = null;
+        if (deleteModal) deleteModal.hide();
+        await loadConverterSessions();
+      } catch (e) {
+        if (deleteModalMessage) deleteModalMessage.innerHTML = '<span class="text-danger">Wystąpił błąd podczas usuwania pliku.</span>';
+      }
+    });
+  }
+
+  search.addEventListener('input', () => { currentPage = 1; renderTable(); });
+  statusFilter.addEventListener('change', () => { currentPage = 1; renderTable(); });
+  columnFilter.addEventListener('change', () => {
+    const val = columnFilter.value;
+    columnFilterIndex = val === '' ? null : parseInt(val, 10);
+    currentPage = 1;
+    renderTable();
+  });
+  columnFilterValue.addEventListener('input', () => { currentPage = 1; renderTable(); });
+  pageSizeSelect.addEventListener('change', () => {
+    pageSize = parseInt(pageSizeSelect.value, 10) || 0;
+    currentPage = 1;
+    renderTable();
+  });
+
+  prevBtn.addEventListener('click', () => {
+    if (currentPage > 1) { currentPage--; renderTable(); }
+  });
+  nextBtn.addEventListener('click', () => {
+    const totalPages = getTotalPages(getFilteredAndSortedData().length);
+    if (currentPage < totalPages) { currentPage++; renderTable(); }
+  });
+
+  // Na start załaduj listę zapisanych sesji
+  loadConverterSessions();
+}
+
+document.addEventListener('DOMContentLoaded', initCsvConverter);
+</script>
+{% endblock %}
+

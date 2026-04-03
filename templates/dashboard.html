@@ -1,0 +1,258 @@
+{% extends "base_panel.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<style>
+    .dashboard-tile {
+        transition: all 0.3s ease;
+        border: 1px solid #e6e9ef;
+    }
+    .dashboard-tile:hover {
+        transform: translateY(-2px);
+    }
+
+    .dashboard-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .dashboard-title {
+        margin-bottom: 0.25rem;
+    }
+
+    /* Kolory kafelków (ikona + nagłówek + hover border/shadow) */
+    .tile-rozmiary .dashboard-icon,
+    .tile-rozmiary .dashboard-title {
+        color: #c458be;
+    }
+    .tile-rozmiary:hover {
+        border-color: #c458be;
+        box-shadow: none;
+    }
+
+    .tile-magazyn .dashboard-icon,
+    .tile-magazyn .dashboard-title {
+        color: #0f6cbd;
+    }
+    .tile-magazyn:hover {
+        border-color: #0f6cbd;
+        box-shadow: none;
+    }
+
+    .tile-reklamacje .dashboard-icon,
+    .tile-reklamacje .dashboard-title {
+        color: #45c741;
+    }
+    .tile-reklamacje:hover {
+        border-color: #45c741;
+        box-shadow: none;
+    }
+
+    .tile-kartony .dashboard-icon,
+    .tile-kartony .dashboard-title {
+        color: #e75454;
+    }
+    .tile-kartony:hover {
+        border-color: #e75454;
+        box-shadow: none;
+    }
+
+    .tile-ustawienia .dashboard-icon,
+    .tile-ustawienia .dashboard-title {
+        color: #acb131;
+    }
+    .tile-ustawienia:hover {
+        border-color: #acb131;
+        box-shadow: none;
+    }
+
+    .tile-dziennik .dashboard-icon,
+    .tile-dziennik .dashboard-title {
+        color: #5954c3;
+    }
+    .tile-dziennik:hover {
+        border-color: #5954c3;
+        box-shadow: none;
+    }
+
+    .tile-dostawy .dashboard-icon,
+    .tile-dostawy .dashboard-title {
+        color: #e88c30;
+    }
+    .tile-dostawy:hover {
+        border-color: #e88c30;
+        box-shadow: none;
+    }
+</style>
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12 mb-3">
+            <h2>...</h2>
+            <p class="text-muted">witamy</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12 d-flex flex-wrap gap-3 justify-content-center">
+            <!-- Dostawy -->
+            <a href="{{ url_for('dostawy') }}" class="text-decoration-none">
+                <div class="card dashboard-tile tile-dostawy" style="width:210px;height:210px;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                    <div class="mb-3 dashboard-icon" style="font-size:40px;">
+                        <i class="bi bi-truck"></i>
+                    </div>
+                    <div class="h4 mb-1 dashboard-title">Dostawy</div>
+                    <p class="text-muted small mb-0 text-center px-3">
+                        Planowane dostawy i transporty.
+                    </p>
+                </div>
+            </a>
+
+            <!-- Rozmiary -->
+            <a href="{{ url_for('rozmiary') }}" class="text-decoration-none">
+                <div class="card dashboard-tile tile-rozmiary" style="width:210px;height:210px;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                    <div class="mb-3 dashboard-icon" style="font-size:40px;">
+                        <i class="bi bi-boxes"></i>
+                    </div>
+                    <div class="h4 mb-1 dashboard-title">Rozmiary</div>
+                    <p class="text-muted small mb-0 text-center px-3">
+                        Wymiary i warianty produktów.
+                    </p>
+                </div>
+            </a>
+
+            <!-- Magazyn -->
+            <a href="{{ url_for('magazyn_new') }}" class="text-decoration-none">
+                <div class="card dashboard-tile tile-magazyn" style="width:210px;height:210px;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                    <div class="mb-3 dashboard-icon" style="font-size:40px;">
+                        <i class="bi bi-columns-gap"></i>
+                    </div>
+                    <div class="h4 mb-1 dashboard-title">Magazyn</div>
+                    <p class="text-muted small mb-0 text-center px-3">
+                        Stany magazynowe i dostępność.
+                    </p>
+                </div>
+            </a>
+
+            <!-- Zgłoszenia -->
+            <a href="{{ url_for('reklamacje') }}" class="text-decoration-none">
+                <div class="card dashboard-tile tile-reklamacje" style="width:210px;height:210px;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                    <div class="mb-3 dashboard-icon" style="font-size:40px;">
+                        <i class="bi bi-bootstrap-reboot"></i>
+                    </div>
+                    <div class="h4 mb-1 dashboard-title">Zgłoszenia</div>
+                    <p class="text-muted small mb-0 text-center px-3">
+                        Obsługa zgłoszeń.
+                    </p>
+                </div>
+            </a>
+
+            {# Kafelek „Spis elementów” tymczasowo wyłączony na dashboardzie
+            <!-- Spis elementów -->
+            <a href="{{ url_for('kartony') }}" class="text-decoration-none">
+                <div class="card dashboard-tile tile-kartony" style="width:210px;height:210px;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                    <div class="mb-3 dashboard-icon" style="font-size:40px;">
+                        <i class="bi bi-box-seam"></i>
+                    </div>
+                    <div class="h4 mb-1 dashboard-title">Spis elementów</div>
+                    <p class="text-muted small mb-0 text-center px-3">
+                        Kartony i części w zestawach.
+                    </p>
+                </div>
+            </a>
+            #}
+
+            <!-- Ustawienia -->
+            <a href="{{ url_for('ustawienia') }}" class="text-decoration-none">
+                <div class="card dashboard-tile tile-ustawienia" style="width:210px;height:210px;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                    <div class="mb-3 dashboard-icon" style="font-size:40px;">
+                        <i class="bi bi-gear"></i>
+                    </div>
+                    <div class="h4 mb-1 dashboard-title">Ustawienia</div>
+                    <p class="text-muted small mb-0 text-center px-3">
+                        Konta i konfiguracja aplikacji.
+                    </p>
+                </div>
+            </a>
+
+            <!-- Dziennik zmian -->
+            <a href="{{ url_for('dziennik') }}" class="text-decoration-none">
+                <div class="card dashboard-tile tile-dziennik" style="width:210px;height:210px;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                    <div class="mb-3 dashboard-icon" style="font-size:40px;">
+                        <i class="bi bi-journal-text"></i>
+                    </div>
+                    <div class="h4 mb-1 dashboard-title">Dziennik zmian</div>
+                    <p class="text-muted small mb-0 text-center px-3">
+                        Historia operacji w systemie.
+                    </p>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    <!-- Linia oddzielająca -->
+    <div class="row mt-4 mb-3">
+        <div class="col-12">
+            <hr style="border-top: 1px solid #e6e9ef; margin: 0;">
+        </div>
+    </div>
+
+    <!-- Kafelki podsumowujące -->
+    <div class="row mt-3">
+        <div class="col-12 col-lg-4 mb-3 mb-lg-0 d-flex justify-content-center">
+            <a href="{{ url_for('reklamacje') }}" class="text-decoration-none w-100 d-flex justify-content-center">
+                <div class="card dashboard-tile tile-reklamacje" style="border-radius:18px; padding:1rem 1.25rem; max-width:420px; width:100%; min-height:190px;">
+                    <div class="h5 mb-3 dashboard-title text-center" style="color:#66b764; font-weight:400;">Zgłoszenia</div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted" style="font-size:15px;">Wszystkie zgłoszenia</span>
+                        <strong style="color:#000000; font-size:18px;">{{ reklamacje_stats.all|default(reklamacje_count|default(0)) }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span style="font-size:15px; color:#d23434;">W trakcie</span>
+                        <strong style="color:#d23434; font-size:18px;">{{ reklamacje_stats.in_progress|default(0) }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span style="font-size:15px; color:#3ea12d;">Zakończone</span>
+                        <strong style="color:#3ea12d; font-size:18px;">{{ reklamacje_stats.closed|default(0) }}</strong>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-12 col-lg-4 mb-3 mb-lg-0 d-flex justify-content-center">
+            <a href="{{ url_for('dostawy') }}" class="text-decoration-none w-100 d-flex justify-content-center">
+                <div class="card dashboard-tile tile-dostawy" style="border-radius:18px; padding:1rem 1.25rem; max-width:420px; width:100%; min-height:190px;">
+                    <div class="h5 mb-3 dashboard-title text-center" style="font-weight:400;">Trzy najbliższe dostawy</div>
+                    {% if delivery_stats.upcoming %}
+                        {% for item in delivery_stats.upcoming %}
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted" style="font-size:14px;">{{ item.name }}</span>
+                            <strong style="font-size:16px;">{{ item.date }}</strong>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-muted text-center" style="font-size:14px;">Brak danych</div>
+                    {% endif %}
+                </div>
+            </a>
+        </div>
+        <div class="col-12 col-lg-4 d-flex justify-content-center">
+            <a href="{{ url_for('dostawy') }}" class="text-decoration-none w-100 d-flex justify-content-center">
+                <div class="card dashboard-tile tile-dostawy" style="border-radius:18px; padding:1rem 1.25rem; max-width:420px; width:100%; min-height:190px;">
+                    <div class="h5 mb-3 dashboard-title text-center" style="font-weight:400;">Dostawy zrealizowane</div>
+                    {% if delivery_stats.completed %}
+                        {% for item in delivery_stats.completed %}
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted" style="font-size:14px;">{{ item.name }}</span>
+                            <strong style="font-size:16px;">{{ item.date }}</strong>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-muted text-center" style="font-size:14px;">Brak danych</div>
+                    {% endif %}
+                </div>
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

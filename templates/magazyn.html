@@ -1,0 +1,402 @@
+{% extends "base.html" %}
+{% block title %}Magazyn | Panel reklamacji{% endblock %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item active">Magazyn</li>
+{% endblock %}
+
+{% block content %}
+<section class="magazyn-page">
+    <div class="magazyn-layout">
+        <!-- Sidebar z kategoriami -->
+        <aside class="magazyn-sidebar">
+            <div class="sidebar-card">
+                <h6 class="sidebar-title">Kategorie</h6>
+                <nav id="categories-nav" class="nav flex-column gap-2">
+                    <!-- Będzie wypełnione przez JavaScript -->
+                </nav>
+            </div>
+        </aside>
+
+        <!-- Główna zawartość -->
+        <div class="magazyn-content">
+        <div class="content-card">
+            <div class="content-header">
+                <div class="header-info">
+                    <h5 class="content-title">Stan magazynowy</h5>
+                    <small class="text-muted">
+                        Ostatnia aktualizacja: <span id="updated-at" class="fw-semibold">-</span>
+                    </small>
+                </div>
+                <div class="header-actions">
+                    <div class="search-group">
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="bi bi-search"></i>
+                            </span>
+                            <input type="search" class="form-control" id="search" placeholder="Szukaj..." autocomplete="off">
+                        </div>
+                    </div>
+                    <button id="refresh-btn" class="btn btn-purple">
+                        <i class="bi bi-arrow-clockwise me-2"></i>Aktualizuj
+                    </button>
+                    <a id="sheet-link" class="btn btn-green" target="_blank" rel="noopener">
+                        <i class="bi bi-box-arrow-up-right me-2"></i>Otwórz arkusz
+                    </a>
+                </div>
+            </div>
+
+            <div class="content-body">
+                <div id="alert" class="alert alert-danger" style="display:none;" role="alert"></div>
+
+                <div class="products-container">
+                    <div id="priority-groups" class="product-groups"></div>
+                    <div id="all-products" class="product-groups"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script>
+        // Bezpośredni link do Google Sheets w formacie CSV
+        const GOOGLE_SHEET_ID = '{{ google_sheet_id }}';
+        const GOOGLE_SHEET_GID = '{{ google_sheet_gid }}';
+        const CSV_URL = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=csv&gid=${GOOGLE_SHEET_GID}`;
+
+        const alertBox = document.getElementById("alert");
+        const sheetLink = document.getElementById("sheet-link");
+        const searchInput = document.getElementById("search");
+        const refreshBtn = document.getElementById("refresh-btn");
+        const updatedAt = document.getElementById("updated-at");
+        const priorityContainer = document.getElementById("priority-groups");
+        const restContainer = document.getElementById("all-products");
+
+        sheetLink.href = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/edit#gid=${GOOGLE_SHEET_GID}`;
+
+        let allProducts = [];
+        let filteredProducts = [];
+
+        function normalizeText(value) {
+            return (value ?? "")
+                .toString()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, " ")
+                .trim();
+        }
+
+        const PRIORITY_GROUPS = [
+            { id: "pergole_skyline", label: "Pergole Skyline", keywords: ["pergola skyline", "skyline"] },
+            { id: "pergole_mirador", label: "Pergole Mirador", keywords: ["pergola mirador", "mirador"] },
+            { id: "rolety", label: "Rolety", keywords: ["roleta", "rolety"] },
+            { id: "zaluzje", label: "Żaluzje", keywords: ["zaluzja", "zaluzje", "żaluzja", "żaluzje"] },
+            { id: "domki_thor", label: "Domki Thor", keywords: ["thor"] },
+            { id: "domki_magni", label: "Domki Magni", keywords: ["magni"] },
+        ].map(group => ({
+            ...group,
+            keywords: group.keywords.map(normalizeText).filter(Boolean),
+        }));
+
+        function escapeHtml(value) {
+            const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" };
+            return (value ?? "").replace(/[&<>"']/g, (char) => map[char]);
+        }
+
+        function formatStock(rawValue, unit) {
+            const fallbackUnit = unit && unit.trim() ? unit.trim() : "szt";
+            const normalized = (rawValue ?? "").toString().replace(",", ".");
+            const numeric = Number.parseFloat(normalized);
+            if (Number.isFinite(numeric)) {
+                const display = Number.isInteger(numeric) ? numeric : numeric.toFixed(2).replace(/\.00$/, "");
+                return `${display} ${fallbackUnit}`;
+            }
+            return `${rawValue || 0} ${fallbackUnit}`;
+        }
+
+        function toProduct(row) {
+            const name = row["Nazwa"]?.trim() || "Bez nazwy";
+            const sku = row["Kod"]?.trim() || "";
+            const ean = row["EAN"]?.trim() || "";
+            const unit = row["jm"]?.trim() || "szt";
+            const stockRaw = row["Stan"] ?? row["stan"] ?? row["STAN"] ?? "0";
+            const normalized = normalizeText(`${name} ${sku} ${ean}`);
+            return {
+                id: `${sku}-${ean}-${name}`.trim(),
+                name,
+                sku,
+                ean,
+                unit,
+                stockRaw,
+                stockLabel: formatStock(stockRaw, unit),
+                normalized,
+                normalizedCompact: normalized.replace(/\s+/g, ""),
+            };
+        }
+
+        function groupProducts(products) {
+            const groups = PRIORITY_GROUPS.map((group) => ({
+                ...group,
+                items: products.filter((product) =>
+                    group.keywords.some((keyword) => keyword && product.normalized.includes(keyword))
+                ),
+            }));
+
+            const groupedIds = new Set(groups.flatMap((group) => group.items.map((item) => item.id)));
+            const rest = products.filter((product) => !groupedIds.has(product.id));
+
+            return { groups, rest };
+        }
+
+        function renderProductLine(product) {
+            const isOut = Number.parseFloat(product.stockRaw.toString().replace(",", ".")) <= 0;
+            const rowClass = isOut ? "table-warning" : "";
+            const stockClass = isOut ? "text-danger" : "text-primary";
+            const skuLabel = product.sku ? product.sku : "brak";
+            const eanLabel = product.ean ? product.ean : "brak";
+
+            return `
+                <tr class="${rowClass}">
+                    <td class="text-end fw-semibold ${stockClass}">${escapeHtml(product.stockLabel)}</td>
+                    <td>${escapeHtml(product.name)}</td>
+                    <td class="text-muted small">${escapeHtml(eanLabel)}</td>
+                    <td class="text-muted small">${escapeHtml(skuLabel)}</td>
+                </tr>
+            `;
+        }
+
+        function renderGroups(groups, container) {
+            if (!groups.length) {
+                container.innerHTML = `<p class="empty-state">Brak produktów do wyświetlenia.</p>`;
+                return;
+            }
+
+            container.innerHTML = groups
+                .map((group) => {
+                    if (!group.items.length) {
+                        return `
+                            <article id="category-${group.id}" class="product-group" data-group="${group.id}">
+                                <h3 class="group-title">${escapeHtml(group.label)}</h3>
+                                <p class="empty-state">Brak wyników w tej kategorii.</p>
+                            </article>
+                        `;
+                    }
+
+                    const items = group.items
+                        .slice()
+                        .sort((a, b) => a.name.localeCompare(b.name, "pl"))
+                        .map(renderProductLine)
+                        .join("");
+
+                    return `
+                        <article id="category-${group.id}" class="product-group" data-group="${group.id}">
+                            <h3 class="group-title mb-3">${escapeHtml(group.label)}</h3>
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th class="text-end" style="width: 100px;">Stan</th>
+                                            <th>Nazwa produktu</th>
+                                            <th style="width: 180px;">EAN</th>
+                                            <th style="width: 200px;">SKU</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${items}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </article>
+                    `;
+                })
+                .join("");
+        }
+
+        function renderRest(products) {
+            if (!products.length) {
+                restContainer.innerHTML = `<p class="empty-state">Wszystkie produkty z prawej kolumny spełniają aktualny filtr.</p>`;
+                return;
+            }
+
+            restContainer.innerHTML = `
+                <article id="category-pozostale" class="product-group">
+                    <h3 class="group-title mb-3">Pozostałe produkty</h3>
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th class="text-end" style="width: 100px;">Stan</th>
+                                    <th>Nazwa produktu</th>
+                                    <th style="width: 180px;">EAN</th>
+                                    <th style="width: 200px;">SKU</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${products.map(renderProductLine).join("")}
+                            </tbody>
+                        </table>
+                    </div>
+                </article>
+            `;
+        }
+
+        function renderCategoriesMenu(groups, hasRest) {
+            const categoriesNav = document.getElementById("categories-nav");
+            if (!categoriesNav) return;
+
+            let menuHTML = PRIORITY_GROUPS.map(group => {
+                const groupInResults = groups.find(g => g.id === group.id);
+                if (!groupInResults || !groupInResults.items.length) return null;
+                return `
+                    <a href="#category-${group.id}" class="nav-link category-link" data-category="${group.id}">
+                        ${escapeHtml(group.label)}
+                    </a>
+                `;
+            }).filter(Boolean).join("");
+
+            if (hasRest) {
+                menuHTML += `
+                    <a href="#category-pozostale" class="nav-link category-link" data-category="pozostale">
+                        Pozostałe produkty
+                    </a>
+                `;
+            }
+
+            categoriesNav.innerHTML = menuHTML || '<span class="text-muted small">Brak kategorii</span>';
+
+            // Dodaj event listenery dla smooth scroll
+            document.querySelectorAll('.category-link').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const targetId = this.getAttribute('href').substring(1);
+                    const targetElement = document.getElementById(targetId);
+                    if (targetElement) {
+                        const offsetTop = targetElement.offsetTop - 100;
+                        window.scrollTo({
+                            top: offsetTop,
+                            behavior: 'smooth'
+                        });
+                    }
+                });
+            });
+        }
+
+        function renderProducts() {
+            const { groups, rest } = groupProducts(filteredProducts);
+            renderGroups(groups, priorityContainer);
+            renderRest(
+                rest.slice().sort((a, b) => a.name.localeCompare(b.name, "pl"))
+            );
+            renderCategoriesMenu(groups, rest.length > 0);
+        }
+
+        function hideError() {
+            alertBox.style.display = "none";
+            alertBox.textContent = "";
+        }
+
+        function showError(message) {
+            alertBox.style.display = "flex";
+            alertBox.innerHTML = `<i class="bi bi-exclamation-triangle"></i>${message}`;
+        }
+
+        function setLoading(isLoading) {
+            refreshBtn.disabled = isLoading;
+            refreshBtn.classList.toggle("is-loading", isLoading);
+            if (isLoading) {
+                refreshBtn.innerHTML = `<i class="bi bi-arrow-clockwise"></i> Ładowanie...`;
+            } else {
+                refreshBtn.innerHTML = `<i class="bi bi-arrow-clockwise"></i> Aktualizuj`;
+            }
+        }
+
+        function applySearch(term) {
+            const normalized = normalizeText(term);
+            const tokens = normalized.split(/\s+/).filter(Boolean);
+            const compact = normalized.replace(/\s+/g, "");
+
+            if (!tokens.length) {
+                filteredProducts = [...allProducts];
+                renderProducts();
+                return;
+            }
+
+            filteredProducts = allProducts.filter((product) =>
+                tokens.every((token) =>
+                    product.normalized.includes(token) ||
+                    product.normalizedCompact.includes(token.replace(/\s+/g, ""))
+                ) || (compact && product.normalizedCompact.includes(compact))
+            );
+
+            renderProducts();
+        }
+
+        async function loadProducts(force = false) {
+            if (refreshBtn.disabled && !force) {
+                return;
+            }
+
+            setLoading(true);
+            hideError();
+
+            try {
+                const response = await fetch(CSV_URL, { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error("Nie udało się pobrać arkusza.");
+                }
+                const text = await response.text();
+                const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+                allProducts = (parsed.data || [])
+                    .filter((row) => row["Nazwa"] || row["Kod"])
+                    .map(toProduct);
+                filteredProducts = [...allProducts];
+                renderProducts();
+                updatedAt.textContent = new Date().toLocaleString("pl-PL", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                });
+            } catch (error) {
+                console.error(error);
+                showError("Nie udało się pobrać danych z arkusza.");
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        refreshBtn.addEventListener("click", () => loadProducts(true));
+        searchInput.addEventListener("input", (event) => applySearch(event.target.value));
+
+        loadProducts(true);
+
+        // Przycisk "do góry"
+        const scrollToTopBtn = document.createElement('button');
+        scrollToTopBtn.className = 'scroll-to-top';
+        scrollToTopBtn.innerHTML = '<i class="bi bi-arrow-up"></i>';
+        scrollToTopBtn.setAttribute('aria-label', 'Przewiń do góry');
+        document.body.appendChild(scrollToTopBtn);
+
+        // Pokaż/ukryj przycisk przy przewijaniu
+        window.addEventListener('scroll', function() {
+            if (window.pageYOffset > 300) {
+                scrollToTopBtn.classList.add('visible');
+            } else {
+                scrollToTopBtn.classList.remove('visible');
+            }
+        });
+
+        // Przewiń do góry po kliknięciu
+        scrollToTopBtn.addEventListener('click', function() {
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        });
+    </script>
+{% endblock %}
+
+
+
+

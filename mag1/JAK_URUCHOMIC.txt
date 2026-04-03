@@ -1,0 +1,64 @@
+═══════════════════════════════════════════════════════════════
+  JAK WYŚWIETLIĆ STRONĘ Z KATALOGU mag1
+═══════════════════════════════════════════════════════════════
+
+📁 LOKALIZACJA:
+
+C:\Users\akara\OneDrive\Desktop\APP\00\mag1
+
+═══════════════════════════════════════════════════════════════
+
+🚀 NAJPROSTSZA METODA:
+
+1. Otwórz katalog mag1
+2. Podwójne kliknięcie na plik: URUCHOM.bat
+3. Serwer uruchomi się automatycznie + otworzy przeglądarkę!
+4. URL: http://localhost:5000/magazyn
+
+═══════════════════════════════════════════════════════════════
+
+🔧 ALTERNATYWNA METODA (ręcznie):
+
+1. Otwórz PowerShell lub CMD
+2. Przejdź do katalogu mag1:
+   cd C:\Users\akara\OneDrive\Desktop\APP\00\mag1
+3. Uruchom serwer:
+   python app.py
+4. Otwórz przeglądarkę na:
+   http://localhost:5000/magazyn
+
+═══════════════════════════════════════════════════════════════
+
+🔐 LOGOWANIE:
+
+Po uruchomieniu zobaczysz stronę logowania.
+
+Użytkownicy:
+- admin / admin123
+- magazyn / magazyn123
+- suuhouse / suuhouse123
+
+Po zalogowaniu zobaczysz:
+- Stronę magazynu z produktami
+- Przycisk "Wyloguj" w prawym górnym rogu
+
+═══════════════════════════════════════════════════════════════
+
+📋 PLIKI W KATALOGU mag1:
+
+✅ app.py              - Aplikacja Flask
+✅ static/             - Style CSS
+✅ templates/          - Szablony HTML (login.html, magazyn.html)
+✅ index.html          - Strona statyczna
+✅ README.txt          - Instrukcja
+✅ URUCHOM.bat         - Skrypt do uruchomienia
+
+═══════════════════════════════════════════════════════════════
+
+💡 WSKAZÓWKA:
+
+Użyj URUCHOM.bat - najłatwiej! Po podwójnym kliknięciu wszystko
+się uruchomi automatycznie.
+
+═══════════════════════════════════════════════════════════════
+

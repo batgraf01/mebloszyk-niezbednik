@@ -1,0 +1,44 @@
+═══════════════════════════════════════════════════════════════
+  LISTA PLIKÓW DO WGRANIA NA SERWER PRZEZ FTP
+═══════════════════════════════════════════════════════════════
+
+Wgraj te pliki i foldery:
+
+✓ app.py
+✓ requirements.txt
+✓ static/ (cały folder)
+  └── style.css
+✓ templates/ (cały folder)
+  ├── login.html
+  ├── magazyn.html
+  ├── availability.html
+  ├── base.html
+  ├── dashboard.html
+  └── tickets.html
+
+═══════════════════════════════════════════════════════════════
+
+NIE WGRYWAJ:
+✗ *.bat (pliki Windows)
+✗ *.txt (pliki instrukcji)
+✗ *.md (pliki dokumentacji)
+
+═══════════════════════════════════════════════════════════════
+
+STRUKTURA NA SERWERZE POWINNA BYĆ:
+
+/
+├── app.py
+├── requirements.txt
+├── static/
+│   └── style.css
+└── templates/
+    ├── login.html
+    ├── magazyn.html
+    ├── availability.html
+    ├── base.html
+    ├── dashboard.html
+    └── tickets.html
+
+═══════════════════════════════════════════════════════════════
+

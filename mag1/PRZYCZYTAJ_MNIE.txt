@@ -1,0 +1,26 @@
+═══════════════════════════════════════════════════════════════
+  👋 WITAJ! PRZECZYTAJ MNIE NAJPIERW
+═══════════════════════════════════════════════════════════════
+
+Jeśli wracasz do tego projektu na drugim komputerze, 
+zacznij od przeczytania tych plików:
+
+1. 📄 STATUS_PROJEKTU.md
+   → Pełne podsumowanie projektu, co zostało zrobione
+
+2. 📄 KONTYNUACJA_PRACY.txt  
+   → Jak kontynuować pracę na drugim komputerze
+
+3. 📄 INSTRUKCJA_WDROZENIA.txt
+   → Jak wdrożyć aplikację na serwer
+
+═══════════════════════════════════════════════════════════════
+
+🎯 PROJEKT: Magazyn SuuHouse
+
+✅ STATUS: Gotowe do wdrożenia na serwer
+
+📂 LOKALIZACJA: C:\Users\akara\OneDrive\Desktop\APP\00\mag1
+
+═══════════════════════════════════════════════════════════════
+

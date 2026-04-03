@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Przeglądarka CSV</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="controls">
+      <div class="control-row">
+        <label for="file-input" class="file-label">Wybierz plik CSV:</label>
+        <input type="file" id="file-input" accept=".csv" />
+      </div>
+      <div class="control-row">
+        <label for="search">Wyszukaj:</label>
+        <input type="text" id="search" placeholder="Filtruj po tekście..." disabled />
+      </div>
+      <div class="control-row" id="status-filter-row" style="display: none;">
+        <label for="status-filter">Status:</label>
+        <select id="status-filter">
+          <option value="">Wszystkie</option>
+          <option value="aktywny">Aktywny</option>
+          <option value="nieaktywny">Nieaktywny</option>
+        </select>
+      </div>
+      <div class="control-row">
+        <label for="column-filter">Filtr kolumny:</label>
+        <select id="column-filter" disabled>
+          <option value="">Wybierz kolumnę</option>
+        </select>
+        <input type="text" id="column-filter-value" placeholder="Wartość..." disabled />
+      </div>
+      <div class="control-row">
+        <label for="page-size">Rekordów na stronę:</label>
+        <select id="page-size">
+          <option value="100">100</option>
+          <option value="200">200</option>
+          <option value="500">500</option>
+          <option value="0">Wszystkie</option>
+        </select>
+      </div>
+    </header>
+
+    <main>
+      <div id="column-filter-info" class="column-filter-info" style="display: none;"></div>
+      <div class="table-wrapper">
+        <table id="data-table">
+          <thead id="table-head"></thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+      <div id="empty-state" class="empty-state">Wybierz plik CSV, aby wyświetlić dane.</div>
+    </main>
+
+    <footer class="pagination" id="pagination" style="display: none;">
+      <button type="button" id="prev-btn" disabled>Poprzednia</button>
+      <span id="page-info">Strona 1 z 1 (0 rekordów)</span>
+      <button type="button" id="next-btn" disabled>Następna</button>
+    </footer>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

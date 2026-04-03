@@ -1,0 +1,38 @@
+═══════════════════════════════════════════════════════════════
+  PYTANIA DO ZADANIA HOSTINGOWI AFTERMARKET
+═══════════════════════════════════════════════════════════════
+
+Skopiuj i wyślij te pytania do hostingu, aby sprawdzić możliwości:
+
+─────────────────────────────────────────────────────────────
+
+1. Czy mój plan hostingu obsługuje aplikacje Python?
+
+2. Czy mogę uruchomić aplikację Flask na serwerze?
+
+3. Jaka wersja Python jest dostępna? (Python 3.7, 3.8, 3.9+?)
+
+4. Czy mogę instalować pakiety Python przez pip?
+
+5. Czy mogę uruchomić aplikację WSGI (plik .wsgi)?
+
+6. Czy mam dostęp SSH/Terminal do serwera?
+
+7. Jak skonfigurować aplikację Flask na serwerze?
+
+8. Czy potrzebuję wyższego planu hostingu do uruchomienia Flask?
+
+9. Jaki plik powinienem wskazać jako punkt wejścia aplikacji?
+   (app.py, app.wsgi, czy inny?)
+
+10. Gdzie powinienem umieścić pliki aplikacji?
+
+─────────────────────────────────────────────────────────────
+
+MOŻESZ TEŻ ZAPYTAĆ:
+
+"Chcę uruchomić aplikację Flask z logowaniem użytkowników.
+Jakie mam opcje na moim planie hostingu?"
+
+═══════════════════════════════════════════════════════════════
+

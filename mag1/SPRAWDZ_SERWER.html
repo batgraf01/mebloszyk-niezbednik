@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnostyka Serwera - Magazyn</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1f8ef1;
+            border-bottom: 3px solid #1f8ef1;
+            padding-bottom: 10px;
+        }
+        .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #1f8ef1;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .check-item {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success { background: #d4edda; border-left: 4px solid #28a745; }
+        .error { background: #f8d7da; border-left: 4px solid #dc3545; }
+        .warning { background: #fff3cd; border-left: 4px solid #ffc107; }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        .button {
+            background: #1f8ef1;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        .button:hover {
+            background: #0d7cd8;
+        }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Diagnostyka Serwera - Magazyn SuuHouse</h1>
+        
+        <div class="info-box">
+            <strong>Instrukcja:</strong> Wgraj ten plik na serwer przez FTP (np. jako check.php lub info.php) 
+            i otwórz go w przeglądarce, aby sprawdzić możliwości serwera.
+        </div>
+
+        <h2>1. Sprawdź przez FTP klienta:</h2>
+        <div class="check-item">
+            <strong>Co sprawdzić w kliencie FTP:</strong>
+            <ul>
+                <li>Jakie pliki już są na serwerze?</li>
+                <li>Czy jest folder <code>public_html</code> lub <code>www</code>?</li>
+                <li>Czy są jakieś pliki Python (<code>.py</code>)?</li>
+                <li>Czy jest folder <code>cgi-bin</code>?</li>
+                <li>Czy jest plik <code>.htaccess</code>?</li>
+                <li>Czy są jakieś pliki <code>.wsgi</code>?</li>
+            </ul>
+        </div>
+
+        <h2>2. Sprawdź przez Panel Hostingu:</h2>
+        <div class="check-item">
+            <strong>W panelu Aftermarket szukaj:</strong>
+            <ul>
+                <li>✗ Sekcja "Python" lub "Python Apps"</li>
+                <li>✗ Sekcja "Aplikacje" lub "Applications"</li>
+                <li>✗ Informacje o wersji PHP/Python</li>
+                <li>✗ Logi serwera</li>
+                <li>✗ Informacje o obsługiwanych językach</li>
+                <li>✗ Terminal/SSH (jeśli dostępny)</li>
+            </ul>
+        </div>
+
+        <h2>3. Co mi wyślij do analizy:</h2>
+        <div class="check-item warning">
+            <strong>Zrób screenshoty lub skopiuj:</strong>
+            <ul>
+                <li>Listę plików z FTP (co widzisz w głównym katalogu)</li>
+                <li>Opis planu hostingu z panelu (jakie ma funkcje)</li>
+                <li>Informacje o Python/Flask (jeśli są dostępne)</li>
+                <li>Jakie opcje widzisz w panelu zarządzania</li>
+            </ul>
+        </div>
+
+        <h2>4. Test połączenia:</h2>
+        <div class="check-item">
+            <button class="button" onclick="testConnection()">Test połączenia z Google Sheets</button>
+            <div id="test-result" style="margin-top: 15px;"></div>
+        </div>
+
+        <h2>5. Informacje o przeglądarce:</h2>
+        <div class="check-item">
+            <pre id="browser-info"></pre>
+        </div>
+
+        <h2>📋 Instrukcja krok po kroku:</h2>
+        <div class="info-box">
+            <ol>
+                <li><strong>Zaloguj się do klienta FTP</strong> (FileZilla, WinSCP, itp.)</li>
+                <li><strong>Zobacz, co jest w głównym katalogu</strong> - zrób screenshot lub listę</li>
+                <li><strong>Zaloguj się do panelu hostingu Aftermarket</strong></li>
+                <li><strong>Szukaj sekcji:</strong> Python, Aplikacje, Web Applications</li>
+                <li><strong>Zrób screenshoty</strong> - co widzisz w panelu</li>
+                <li><strong>Wyślij mi te informacje</strong> - a ja pomogę przeanalizować</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // Informacje o przeglądarce
+        document.getElementById('browser-info').textContent = 
+            `User Agent: ${navigator.userAgent}\n` +
+            `Język: ${navigator.language}\n` +
+            `Platforma: ${navigator.platform}\n` +
+            `Cookie enabled: ${navigator.cookieEnabled}\n` +
+            `Online: ${navigator.onLine}`;
+
+        // Test połączenia z Google Sheets
+        async function testConnection() {
+            const resultDiv = document.getElementById('test-result');
+            resultDiv.innerHTML = '<p>⏳ Sprawdzanie połączenia...</p>';
+            
+            try {
+                const GOOGLE_SHEET_ID = '1qN8sUUUXv1PXjjVLoEwhCeoTI5XDUQzC4gHQLNkhvhg';
+                const GOOGLE_SHEET_GID = '0';
+                const CSV_URL = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=csv&gid=${GOOGLE_SHEET_GID}`;
+                
+                const response = await fetch(CSV_URL);
+                if (response.ok) {
+                    resultDiv.innerHTML = '<div class="check-item success">✓ Połączenie z Google Sheets działa!</div>';
+                } else {
+                    resultDiv.innerHTML = '<div class="check-item error">✗ Problem z połączeniem z Google Sheets</div>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="check-item error">✗ Błąd: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>
+

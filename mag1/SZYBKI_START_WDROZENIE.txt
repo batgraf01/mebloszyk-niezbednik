@@ -1,0 +1,43 @@
+═══════════════════════════════════════════════════════════════
+  SZYBKI START - WDROŻENIE NA SERWER
+═══════════════════════════════════════════════════════════════
+
+📦 CO WGRACIĆ PRZEZ FTP:
+
+1. app.py
+2. app.wsgi
+3. requirements.txt
+4. CAŁY folder static/ (z plikiem style.css)
+5. CAŁY folder templates/ (z wszystkimi plikami .html)
+
+═══════════════════════════════════════════════════════════════
+
+📍 GDZIE TO WGRACIĆ:
+
+- Do głównego katalogu domeny na serwerze
+- Zwykle to: /public_html/ lub /www/ lub główny katalog FTP
+
+═══════════════════════════════════════════════════════════════
+
+⚙️  PO WGRANIU:
+
+1. Zainstaluj Flask na serwerze:
+   - Przez panel hostingu (Python/Apps)
+   - LUB przez SSH: pip3 install -r requirements.txt
+
+2. Skonfiguruj aplikację w panelu hostingu:
+   - Dodaj aplikację Python
+   - Wskaż plik: app.wsgi lub app.py
+
+3. Przetestuj w przeglądarce!
+
+═══════════════════════════════════════════════════════════════
+
+❓ PROBLEM?
+
+- Sprawdź czy hosting obsługuje Python/Flask
+- Skontaktuj się z hostingiem Aftermarket
+- Sprawdź logi błędów w panelu
+
+═══════════════════════════════════════════════════════════════
+

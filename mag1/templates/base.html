@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Panel reklamacji{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}?v={{ cache_buster }}" rel="stylesheet">
+</head>
+<body>
+<div class="app-shell">
+    <!-- Navigation Toggle Bar -->
+    <div class="nav-toggle-bar">
+        <button class="sidebar-toggle" id="sidebarToggle">
+            <i class="bi bi-list lh-1"></i>
+        </button>
+    </div>
+
+    <!-- Breadcrumb Bar -->
+    <div class="breadcrumb-bar">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item">
+                    <a href="{{ url_for('magazyn') }}">
+                        <i class="bi bi-house lh-1 pe-3 me-3 border-end border-dark"></i>
+                        Strona główna
+                    </a>
+                </li>
+                {% block breadcrumbs %}{% endblock %}
+            </ol>
+        </nav>
+    </div>
+
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-content">
+                <div class="sidebar-header">
+                    <a href="{{ url_for('magazyn') }}" class="sidebar-logo-link">
+                        <img src="https://www.suuhouse.pl/images/suuhouse%20logo%20desktop.png" alt="SuuHouse" class="sidebar-logo">
+                    </a>
+                </div>
+                <nav class="sidebar-nav">
+                    <a href="{{ url_for('tickets') }}" class="sidebar-link {% if request.endpoint == 'tickets' %}active{% endif %}">
+                        <i class="bi bi-terminal"></i>
+                        <span class="sidebar-text">Reklamacje</span>
+                    </a>
+                    <a href="{{ url_for('magazyn') }}" class="sidebar-link {% if request.endpoint == 'magazyn' %}active{% endif %}">
+                        <i class="bi bi-box-seam fs-1 text-primary lh-1"></i>
+                        <span class="sidebar-text">Magazyn</span>
+                    </a>
+                    <a href="#" class="sidebar-link">
+                        <i class="bi bi-gear"></i>
+                        <span class="sidebar-text">Ustawienia</span>
+                    </a>
+                </nav>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="top-bar__group">
+                    <button type="button" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> Dodaj reklamację
+                    </button>
+                    <a href="{{ url_for('tickets') }}" class="btn btn-secondary">
+                        <i class="bi bi-list-check"></i> Lista zgłoszeń
+                    </a>
+                    <a href="{{ url_for('availability') }}" class="btn btn-secondary">
+                        <i class="bi bi-box-seam"></i> Dostępność produktów
+                    </a>
+                </div>
+                <div class="top-bar__brand">
+                    <span class="brand-icon"><i class="bi bi-house"></i></span>
+                    <div class="brand-copy">
+                        <small>Panel reklamacji</small>
+                        <span>SuuHouse</span>
+                    </div>
+                </div>
+                <div class="top-bar__group">
+                    <form class="top-bar__search" role="search" onsubmit="return false;">
+                        <input type="search" placeholder="Szukaj zgłoszenia, klienta lub ID..." autocomplete="off">
+                        <button type="button"><i class="bi bi-search"></i></button>
+                    </form>
+                </div>
+            </header>
+
+            <div class="page-content">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js" integrity="sha512-16esztaSRplJROstbIIdwX3N97V1+pZvV33ABoG1H2OyTttBxEGkTsoIVsiP1iaTtM8b3+hu2kB6pQ4Clr5yug==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+// Sidebar animation powered by GSAP (smooth open/close on all viewports)
+document.addEventListener('DOMContentLoaded', function() {
+    const sidebar = document.getElementById('sidebar');
+    const toggleBtn = document.getElementById('sidebarToggle');
+    const mainContent = document.querySelector('.main-content');
+    const sidebarTexts = sidebar.querySelectorAll('.sidebar-text');
+    const styles = getComputedStyle(document.documentElement);
+    const expandedWidth = styles.getPropertyValue('--sidebar-width').trim() || '260px';
+    const collapsedWidth = styles.getPropertyValue('--sidebar-collapsed-width').trim() || '100px';
+    const slideDuration = 0.9;
+
+    let isCollapsed = document.body.classList.contains('sidebar-collapsed');
+
+    const applyState = (collapse, animate = true) => {
+        const targetSidebarX = collapse ? `calc(${collapsedWidth} - ${expandedWidth})` : '0px';
+        const targetSidebarWidth = collapse ? collapsedWidth : expandedWidth;
+        const targetMainMargin = collapse ? collapsedWidth : expandedWidth;
+        const textOpacity = collapse ? 0 : 1;
+
+        if (animate) {
+            gsap.to(sidebar, {
+                duration: slideDuration,
+                x: targetSidebarX,
+                width: targetSidebarWidth,
+                ease: 'power2.inOut'
+            });
+            gsap.to(mainContent, {
+                duration: slideDuration,
+                marginLeft: targetMainMargin,
+                ease: 'power2.inOut'
+            });
+            gsap.to(sidebarTexts, {
+                duration: 0.5,
+                autoAlpha: textOpacity,
+                ease: 'power1.out',
+                delay: collapse ? 0.1 : 0
+            });
+        } else {
+            gsap.set(sidebar, { x: targetSidebarX, width: targetSidebarWidth });
+            gsap.set(mainContent, { marginLeft: targetMainMargin });
+            gsap.set(sidebarTexts, { autoAlpha: textOpacity });
+        }
+
+        document.body.classList.toggle('sidebar-collapsed', collapse);
+    };
+
+    // Set initial positions without animation
+    applyState(isCollapsed, false);
+
+    toggleBtn.addEventListener('click', function() {
+        isCollapsed = !isCollapsed;
+        applyState(isCollapsed, true);
+    });
+});
+</script>
+</body>
+</html>
+

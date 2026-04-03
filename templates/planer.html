@@ -1,0 +1,764 @@
+{% extends "base_panel.html" %}
+{% block title %}Planer{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="row">
+    <div class="col-12">
+      <div class="card" style="border-radius:12px;">
+        <div class="card-body py-3">
+          <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+            <h3 class="mb-0" style="font-weight:400;">Planer</h3>
+            <div class="d-flex align-items-center gap-2">
+              <span id="planerStatus" class="text-muted small">Ładowanie...</span>
+              <button id="btnSkuRefresh" type="button" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-repeat"></i> Odśwież SKU
+              </button>
+              <button id="btnSkuOverwrite" type="button" class="btn btn-sm btn-outline-danger">
+                Nadpisz z SKU
+              </button>
+              <div class="input-group input-group-sm" style="width:260px;">
+                <input id="manualSkuInput" type="text" class="form-control" placeholder="Dodaj SKU ręcznie">
+                <button id="btnManualSkuAdd" type="button" class="btn btn-outline-success">Dodaj SKU</button>
+              </div>
+              <button id="btnAddRow" type="button" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-plus-lg"></i> Dodaj pozycję
+              </button>
+            </div>
+          </div>
+          <div class="small text-muted mb-3">
+            Edycja inline: kliknij w komórkę (SKU / Rodzaj miary / Projekt zamówienia), wpisz wartość i kliknij poza polem, aby zapisać.
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-12 col-md-7 col-lg-8">
+              <input id="planerSearch" type="search" class="form-control form-control-sm" placeholder="Szukaj na żywo: produkt, SKU, dostawca, nr dostawy, data, ilość...">
+            </div>
+            <div class="col-12 col-md-5 col-lg-4">
+              <select id="planerSupplier" class="form-select form-select-sm">
+                <option value="">Wszyscy dostawcy</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table table-sm align-middle planer-table">
+              <thead>
+                <tr>
+                  <th>DOSTAWCA</th>
+                  <th>SKU</th>
+                  <th>Jedn.</th>
+                  <th>Stan</th>
+                  <th>NR DOSTAWY | DATA</th>
+                  <th>NR DOSTAWY DATA</th>
+                  <th>SUMA</th>
+                  <th>PROJEKT ZAMÓWIENIA</th>
+                </tr>
+              </thead>
+              <tbody id="planerBody">
+                <tr><td colspan="8" class="text-center text-muted py-4">Ładowanie...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="d-flex justify-content-center align-items-center gap-2 mt-2">
+            <button id="planerPrevPage" class="btn btn-sm btn-outline-secondary">‹</button>
+            <span id="planerPageInfo" class="text-muted small">1/1</span>
+            <button id="planerNextPage" class="btn btn-sm btn-outline-secondary">›</button>
+          </div>
+          <datalist id="planerSkuList"></datalist>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="planerDeliveriesModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="planerDeliveriesTitle">Dostawy SKU</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body pt-2">
+        <div id="planerDeliveriesMeta" class="small text-muted mb-2"></div>
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead>
+              <tr>
+                <th>Nr dostawy</th>
+                <th>Data</th>
+                <th class="text-end">Ilość</th>
+                <th>Dostawca</th>
+              </tr>
+            </thead>
+            <tbody id="planerDeliveriesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .planer-table {
+    table-layout: fixed;
+  }
+  .planer-table th:nth-child(1) { width: 160px; } /* Dostawca */
+  .planer-table th:nth-child(1) { width: 120px; } /* Dostawca */
+  .planer-table th:nth-child(2) { width: 120px; } /* SKU */
+  .planer-table th:nth-child(3) { width: 40px; }  /* Rodzaj miary */
+  .planer-table th:nth-child(4) { width: 40px; }  /* Stan magazyn */
+  .planer-table th:nth-child(5) { width: 150px; } /* Nr dostawy | data */
+  .planer-table th:nth-child(6) { width: 130px; } /* Nr dostawy data */
+  .planer-table th:nth-child(7) { width: 40px; }  /* Suma */
+  .planer-table th:nth-child(8) { width: 130px; } /* Projekt zamówienia */
+  .planer-table th {
+    font-weight: 500;
+    font-size: 9px;
+    color: #333;
+    white-space: nowrap;
+    border-color: #d7dce3;
+  }
+  .planer-table td {
+    font-size: 10px;
+    border-color: #e5e8ee;
+    vertical-align: middle;
+  }
+  .planer-editable {
+    cursor: text;
+    position: relative;
+    min-width: 0;
+    min-height: 28px;
+  }
+  .planer-editable[data-field="supplier"] { min-width: 120px; }
+  .planer-editable[data-field="sku"] { min-width: 120px; }
+  .planer-editable[data-field="unit"] { min-width: 40px; }
+  .planer-editable[data-field="project_qty"] { min-width: 130px; }
+  .planer-editable:hover {
+    background: #f7fbff;
+  }
+  .planer-editable .empty {
+    color: #9aa2ad;
+  }
+  .planer-cell-input {
+    width: 100%;
+    height: 28px;
+    box-sizing: border-box;
+    border: 1px solid #9ec5fe;
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 10px;
+    outline: none;
+  }
+  .planer-nowrap {
+    white-space: nowrap;
+  }
+  .delivery-more {
+    display: inline-block;
+    margin-left: 6px;
+    color: #0f6cbd;
+    font-weight: 600;
+  }
+  .delivery-more-btn {
+    margin-left: 6px;
+    border: none;
+    background: transparent;
+    color: #0f6cbd;
+    text-decoration: underline;
+    padding: 0;
+    font-size: 10px;
+    cursor: pointer;
+  }
+</style>
+
+<script>
+(() => {
+  const tbody = document.getElementById('planerBody');
+  const statusEl = document.getElementById('planerStatus');
+  const addBtn = document.getElementById('btnAddRow');
+  const btnSkuRefresh = document.getElementById('btnSkuRefresh');
+  const btnSkuOverwrite = document.getElementById('btnSkuOverwrite');
+  const manualSkuInput = document.getElementById('manualSkuInput');
+  const btnManualSkuAdd = document.getElementById('btnManualSkuAdd');
+  const skuDataList = document.getElementById('planerSkuList');
+  const prevPageBtn = document.getElementById('planerPrevPage');
+  const nextPageBtn = document.getElementById('planerNextPage');
+  const pageInfoEl = document.getElementById('planerPageInfo');
+  const searchInput = document.getElementById('planerSearch');
+  const supplierSelect = document.getElementById('planerSupplier');
+  const deliveriesModalEl = document.getElementById('planerDeliveriesModal');
+  const deliveriesTitleEl = document.getElementById('planerDeliveriesTitle');
+  const deliveriesMetaEl = document.getElementById('planerDeliveriesMeta');
+  const deliveriesBodyEl = document.getElementById('planerDeliveriesBody');
+
+  let plannerRows = [];
+  let inventoryMap = new Map();
+  let deliveriesMap = new Map();
+  let deliveriesRowsRaw = [];
+  let skuIndexItems = [];
+  let skuSupplierMap = {};
+  let saveTimer = null;
+  let queryText = '';
+  let supplierFilter = '';
+  let currentPage = 1;
+  const pageSize = 25;
+  const SEARCH_PLACEHOLDER = 'Szukaj na żywo: produkt, SKU, dostawca, nr dostawy, data, ilość...';
+  const deliveriesModal = (window.bootstrap && deliveriesModalEl)
+    ? new bootstrap.Modal(deliveriesModalEl)
+    : null;
+
+  const esc = (v) => String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+  const parseNum = (v) => {
+    const txt = String(v ?? '').trim().replace(',', '.');
+    if (!txt) return 0;
+    const n = parseFloat(txt);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const parseDateValue = (v) => {
+    const txt = String(v || '').trim();
+    if (!txt) return Number.MAX_SAFE_INTEGER;
+    const d = new Date(txt);
+    return Number.isNaN(d.getTime()) ? Number.MAX_SAFE_INTEGER : d.getTime();
+  };
+
+  const rowId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+
+  function shortSupplierName(raw) {
+    const txt = String(raw || '').trim();
+    if (!txt) return '';
+    const lc = txt.toLowerCase();
+    if (lc.includes('frstech wpc stock')) return 'FRSTECH';
+    if (lc.includes('shanghai sika trading')) return 'SIKA';
+    if (lc.includes('hooeasy')) return 'HOOEASY';
+    if (lc.includes('zhengte')) return 'ZHEJIANG';
+    return txt;
+  }
+
+  function setStatus(msg, ok = true) {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.style.color = ok ? '#5f6b7a' : '#c92a2a';
+  }
+
+  function setSkuIndex(items, suppliers = {}) {
+    skuIndexItems = Array.isArray(items) ? Array.from(new Set(items.map(s => String(s || '').trim().toUpperCase()).filter(Boolean))).sort() : [];
+    skuSupplierMap = {};
+    if (suppliers && typeof suppliers === 'object') {
+      Object.entries(suppliers).forEach(([sku, supplier]) => {
+        const key = normalizeSkuInput(sku);
+        if (!key) return;
+        skuSupplierMap[key] = String(supplier || '').trim();
+      });
+    }
+    if (skuDataList) {
+      skuDataList.innerHTML = skuIndexItems.map(s => `<option value="${esc(s)}"></option>`).join('');
+    }
+  }
+
+  async function loadSkuIndex() {
+    const res = await fetch('/api/sku-index');
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Błąd listy SKU');
+    setSkuIndex(data.items || [], data.suppliers || {});
+    return data;
+  }
+
+  async function refreshSkuIndex() {
+    const res = await fetch('/api/sku-index/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Nie udało się odświeżyć SKU');
+    setSkuIndex(data.items || [], data.suppliers || {});
+    return data;
+  }
+
+  async function addManualSku() {
+    const sku = normalizeSkuInput(manualSkuInput ? manualSkuInput.value : '');
+    if (!sku) return;
+    const res = await fetch('/api/sku-index/manual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sku }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Nie udało się dodać SKU');
+    setSkuIndex(data.items || [], data.suppliers || {});
+    if (manualSkuInput) manualSkuInput.value = '';
+    return data;
+  }
+
+  function normalizeSkuInput(v) {
+    return String(v || '').trim().toUpperCase();
+  }
+
+  function ensureMinimumRows() {
+    if (plannerRows.length >= 8) return false;
+    const toAdd = 8 - plannerRows.length;
+    for (let i = 0; i < toAdd; i += 1) {
+      plannerRows.push({ id: rowId(), supplier: '', sku: '', unit: '', project_qty: '' });
+    }
+    return true;
+  }
+
+  function normalizeRows(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .filter(r => r && typeof r === 'object')
+      .map(r => ({
+        id: String(r.id || rowId()),
+        supplier: String(r.supplier || ''),
+        sku: String(r.sku || ''),
+        unit: String(r.unit || ''),
+        project_qty: String(r.project_qty || ''),
+      }));
+  }
+
+  function buildInventoryMap(items) {
+    const map = new Map();
+    (Array.isArray(items) ? items : []).forEach((it) => {
+      const code = String(it?.code || '').trim().toUpperCase();
+      if (!code) return;
+      map.set(code, {
+        stock: parseNum(it?.stock || 0),
+        unit: String(it?.unit || '').trim(),
+      });
+    });
+    return map;
+  }
+
+  function isDelivered(row) {
+    const status = String(row?.status || '').toLowerCase();
+    if (status.includes('dostarczon') || status.includes('zrealiz')) return true;
+    const delivered = String(row?.dostarczono || '').trim();
+    return !!delivered;
+  }
+
+  function buildDeliveriesMap(rows) {
+    const map = new Map();
+    (Array.isArray(rows) ? rows : []).forEach((r) => {
+      if (isDelivered(r)) return;
+      const sku = String(r?.symbol || '').trim().toUpperCase();
+      if (!sku) return;
+      const date = String(r?.planowana_dostawa || '').trim();
+      const nr = String(r?.nr_transportu || r?.nr_proformy || r?.nr_faktury || '-').trim();
+      const supplier = shortSupplierName(r?.dostawca || '');
+      const qty = parseNum(r?.ilosc || 0);
+      if (!map.has(sku)) map.set(sku, []);
+      map.get(sku).push({ nr, date, qty, supplier });
+    });
+    for (const arr of map.values()) {
+      arr.sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date));
+    }
+    return map;
+  }
+
+  function deliveryText(d) {
+    if (!d) return '<span class="empty">-</span>';
+    const qtyTxt = Number.isFinite(d.qty) ? ` (${d.qty})` : '';
+    return `${esc(d.nr)} | ${esc(d.date || '-')}${qtyTxt}`;
+  }
+
+  function computedFor(row) {
+    const skuKey = String(row.sku || '').trim().toUpperCase();
+    const inv = inventoryMap.get(skuKey) || { stock: 0, unit: '' };
+    const deliveries = deliveriesMap.get(skuKey) || [];
+    const d1 = deliveries[0] || null;
+    const d2 = deliveries[1] || null;
+    const supplierAuto = (deliveries.find(d => d?.supplier)?.supplier || '').trim();
+    const incoming = deliveries.reduce((sum, d) => sum + parseNum(d.qty), 0);
+    const total = inv.stock + incoming;
+    return {
+      stock: inv.stock,
+      unitAuto: inv.unit,
+      supplierAuto,
+      d1,
+      d2,
+      allDeliveries: deliveries,
+      total,
+    };
+  }
+
+  function renderDeliveryCell(primary, allDeliveries, rowIdValue) {
+    if (!primary) return '<span class="empty">-</span>';
+    const extra = Math.max(0, (allDeliveries || []).length - 2);
+    return `
+      <span>${deliveryText(primary)}</span>
+      ${extra > 0 ? `<span class="delivery-more">+${extra}</span>` : ''}
+      <button type="button" class="delivery-more-btn" data-action="show-deliveries" data-row-id="${esc(rowIdValue)}">Szczegóły</button>
+    `;
+  }
+
+  function displayEditableValue(v) {
+    const t = String(v || '').trim();
+    return t ? esc(t) : '<span class="empty">Kliknij, aby wpisać</span>';
+  }
+
+  function renderRow(r) {
+    const c = computedFor(r);
+    const shownUnit = String(r.unit || c.unitAuto || 'szt');
+    const shownSupplier = shortSupplierName(r.supplier || c.supplierAuto || '');
+    return `
+      <tr data-id="${esc(r.id)}">
+        <td class="planer-editable planer-nowrap" data-field="supplier">${displayEditableValue(shownSupplier)}</td>
+        <td class="planer-editable" data-field="sku">${displayEditableValue(r.sku)}</td>
+        <td class="planer-editable" data-field="unit">${displayEditableValue(shownUnit)}</td>
+        <td class="planer-nowrap">${c.stock}</td>
+        <td>${renderDeliveryCell(c.d1, c.allDeliveries, r.id)}</td>
+        <td>${renderDeliveryCell(c.d2, c.allDeliveries, r.id)}</td>
+        <td class="planer-nowrap fw-semibold">${c.total}</td>
+        <td class="planer-editable" data-field="project_qty">${displayEditableValue(r.project_qty)}</td>
+      </tr>
+    `;
+  }
+
+  function rerenderRow(id) {
+    if (!tbody) return;
+    const row = plannerRows.find(x => x.id === id);
+    const tr = Array.from(tbody.querySelectorAll('tr[data-id]')).find(el => el.getAttribute('data-id') === id);
+    if (!row || !tr) return;
+    tr.outerHTML = renderRow(row);
+  }
+
+  function buildSupplierOptions() {
+    const values = new Set();
+    plannerRows.forEach((r) => {
+      const c = computedFor(r);
+      const shownSupplier = shortSupplierName(r.supplier || c.supplierAuto || '').trim();
+      if (shownSupplier) values.add(shownSupplier);
+    });
+    deliveriesRowsRaw.forEach((r) => {
+      const s = shortSupplierName(r?.dostawca || '').trim();
+      if (s) values.add(s);
+    });
+    return Array.from(values).sort((a, b) => a.localeCompare(b, 'pl'));
+  }
+
+  function refreshSupplierSelect() {
+    if (!supplierSelect) return;
+    const current = supplierFilter;
+    const options = buildSupplierOptions();
+    supplierSelect.innerHTML = '<option value="">Wszyscy dostawcy</option>' +
+      options.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    if (current && options.includes(current)) supplierSelect.value = current;
+    else supplierSelect.value = '';
+  }
+
+  function getFilteredRows() {
+    const q = queryText.trim().toLowerCase();
+    const sFilter = supplierFilter.trim().toLowerCase();
+    return plannerRows.filter((r) => {
+      const c = computedFor(r);
+      const shownSupplier = shortSupplierName(r.supplier || c.supplierAuto || '').trim();
+      const shownUnit = String(r.unit || c.unitAuto || 'szt').trim();
+      if (sFilter && shownSupplier.toLowerCase() !== sFilter) return false;
+      if (!q) return true;
+      const hay = [
+        shownSupplier,
+        r.sku,
+        shownUnit,
+        String(c.stock),
+        c.d1 ? `${c.d1.nr} ${c.d1.date} ${c.d1.qty} ${c.d1.supplier || ''}` : '',
+        c.d2 ? `${c.d2.nr} ${c.d2.date} ${c.d2.qty} ${c.d2.supplier || ''}` : '',
+        String(c.total),
+        r.project_qty,
+      ].join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }
+
+  function hasActiveFilters() {
+    return Boolean(queryText.trim() || supplierFilter.trim());
+  }
+
+  function updatePager(totalRows, totalPages) {
+    if (pageInfoEl) pageInfoEl.textContent = totalRows ? `${currentPage}/${totalPages}` : '0/0';
+    if (prevPageBtn) prevPageBtn.disabled = currentPage <= 1 || totalRows === 0;
+    if (nextPageBtn) nextPageBtn.disabled = currentPage >= totalPages || totalRows === 0;
+  }
+
+  function overwriteRowsFromSkuIndex() {
+    if (!Array.isArray(skuIndexItems) || !skuIndexItems.length) {
+      setStatus('Brak SKU do nadpisania', false);
+      return;
+    }
+    plannerRows = skuIndexItems.map((sku) => ({
+      id: rowId(),
+      supplier: shortSupplierName(skuSupplierMap[sku] || ''),
+      sku: String(sku || '').trim().toUpperCase(),
+      unit: 'szt',
+      project_qty: '',
+    }));
+    currentPage = 1;
+    render();
+    saveRowsDebounced();
+    setStatus(`Nadpisano wiersze z SKU (${plannerRows.length})`);
+  }
+
+  function render() {
+    if (!tbody) return;
+    refreshSupplierSelect();
+    const rows = getFilteredRows();
+    const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    if (currentPage > totalPages) currentPage = totalPages;
+    if (currentPage < 1) currentPage = 1;
+    updatePager(rows.length, totalPages);
+    const start = (currentPage - 1) * pageSize;
+    const pageRows = rows.slice(start, start + pageSize);
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">Brak danych</td></tr>';
+      return;
+    }
+    tbody.innerHTML = pageRows.map(renderRow).join('');
+  }
+
+  async function saveRows() {
+    try {
+      const payload = { data: { rows: plannerRows } };
+      const res = await fetch('/api/planer', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Błąd zapisu');
+      }
+      setStatus('Zapisano');
+    } catch (e) {
+      setStatus(e.message || 'Błąd zapisu', false);
+    }
+  }
+
+  function saveRowsDebounced() {
+    if (saveTimer) clearTimeout(saveTimer);
+    setStatus('Zapisywanie...');
+    saveTimer = setTimeout(saveRows, 250);
+  }
+
+  function startEdit(cell) {
+    if (!cell || cell.querySelector('input')) return;
+    const tr = cell.closest('tr');
+    if (!tr) return;
+    const id = tr.getAttribute('data-id');
+    const field = cell.getAttribute('data-field');
+    const row = plannerRows.find(x => x.id === id);
+    if (!row || !field) return;
+
+    const original = field === 'unit'
+      ? String(row.unit || '')
+      : String(row[field] || '');
+
+    const listAttr = field === 'sku' ? ' list="planerSkuList"' : '';
+    cell.innerHTML = `<input class="planer-cell-input" type="text"${listAttr} value="${esc(original)}">`;
+    const input = cell.querySelector('input');
+    if (!input) return;
+    input.focus();
+    input.select();
+
+    const commit = (apply) => {
+      const value = String(input.value || '').trim();
+      if (apply) {
+        if (field === 'sku') {
+          row[field] = value.toUpperCase();
+        } else if (field === 'supplier') {
+          row[field] = shortSupplierName(value);
+        } else {
+          row[field] = value;
+        }
+        saveRowsDebounced();
+      }
+      if (hasActiveFilters()) render();
+      else rerenderRow(id);
+    };
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit(true);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        commit(false);
+      }
+    });
+    input.addEventListener('blur', () => commit(true), { once: true });
+  }
+
+  function showDeliveriesForRow(rowIdValue) {
+    const row = plannerRows.find(r => r.id === rowIdValue);
+    if (!row || !deliveriesBodyEl) return;
+    const sku = normalizeSkuInput(row.sku);
+    const list = deliveriesMap.get(sku) || [];
+
+    if (deliveriesTitleEl) deliveriesTitleEl.textContent = `Dostawy SKU: ${sku || '-'}`;
+    if (deliveriesMetaEl) deliveriesMetaEl.textContent = `Łącznie dostaw: ${list.length}`;
+
+    if (!list.length) {
+      deliveriesBodyEl.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Brak dostaw dla tego SKU</td></tr>';
+    } else {
+      deliveriesBodyEl.innerHTML = list.map(d => `
+        <tr>
+          <td>${esc(d.nr || '-')}</td>
+          <td>${esc(d.date || '-')}</td>
+          <td class="text-end">${Number.isFinite(d.qty) ? d.qty : '-'}</td>
+          <td>${esc(d.supplier || '-')}</td>
+        </tr>
+      `).join('');
+    }
+    if (deliveriesModal) deliveriesModal.show();
+  }
+
+  function bindEvents() {
+    if (tbody) {
+      tbody.addEventListener('click', (e) => {
+        const detailsBtn = e.target.closest('button[data-action="show-deliveries"]');
+        if (detailsBtn) {
+          const rowIdValue = detailsBtn.getAttribute('data-row-id');
+          if (rowIdValue) showDeliveriesForRow(rowIdValue);
+          return;
+        }
+        const cell = e.target.closest('.planer-editable');
+        if (!cell || !tbody.contains(cell)) return;
+        startEdit(cell);
+      });
+    }
+    if (addBtn) {
+      addBtn.addEventListener('click', () => {
+        plannerRows.push({ id: rowId(), supplier: '', sku: '', unit: '', project_qty: '' });
+        currentPage = Math.max(1, Math.ceil(plannerRows.length / pageSize));
+        render();
+        saveRowsDebounced();
+      });
+    }
+    if (btnSkuOverwrite) {
+      btnSkuOverwrite.addEventListener('click', () => {
+        const ok = window.confirm('Nadpisać wszystkie obecne wiersze listą SKU z indeksu?');
+        if (!ok) return;
+        overwriteRowsFromSkuIndex();
+      });
+    }
+    if (btnSkuRefresh) {
+      btnSkuRefresh.addEventListener('click', async () => {
+        const oldText = btnSkuRefresh.innerHTML;
+        btnSkuRefresh.disabled = true;
+        btnSkuRefresh.innerHTML = '<i class="bi bi-hourglass-split"></i> SKU...';
+        setStatus('Odświeżam SKU...');
+        try {
+          const data = await refreshSkuIndex();
+          setStatus(`SKU odświeżone (${data.count || 0})`);
+        } catch (e) {
+          setStatus(e.message || 'Błąd odświeżania SKU', false);
+        } finally {
+          btnSkuRefresh.disabled = false;
+          btnSkuRefresh.innerHTML = oldText;
+        }
+      });
+    }
+    if (btnManualSkuAdd && manualSkuInput) {
+      const addAction = async () => {
+        try {
+          const data = await addManualSku();
+          if (data) setStatus(`Dodano SKU. Razem: ${data.count || 0}`);
+        } catch (e) {
+          setStatus(e.message || 'Błąd dodawania SKU', false);
+        }
+      };
+      btnManualSkuAdd.addEventListener('click', addAction);
+      manualSkuInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addAction();
+        }
+      });
+    }
+    if (searchInput) {
+      searchInput.placeholder = SEARCH_PLACEHOLDER;
+      searchInput.addEventListener('focus', () => { searchInput.placeholder = ''; });
+      searchInput.addEventListener('blur', () => {
+        if (!String(searchInput.value || '').trim()) {
+          searchInput.placeholder = SEARCH_PLACEHOLDER;
+        }
+      });
+      searchInput.addEventListener('input', () => {
+        queryText = String(searchInput.value || '');
+        currentPage = 1;
+        render();
+      });
+    }
+    if (supplierSelect) {
+      supplierSelect.addEventListener('change', () => {
+        supplierFilter = String(supplierSelect.value || '');
+        currentPage = 1;
+        render();
+      });
+    }
+    if (prevPageBtn) {
+      prevPageBtn.addEventListener('click', () => {
+        if (currentPage > 1) {
+          currentPage -= 1;
+          render();
+        }
+      });
+    }
+    if (nextPageBtn) {
+      nextPageBtn.addEventListener('click', () => {
+        currentPage += 1;
+        render();
+      });
+    }
+  }
+
+  async function loadAll() {
+    setStatus('Ładowanie...');
+    try {
+      const [planRes, invRes, delRes, skuRes] = await Promise.all([
+        fetch('/api/planer'),
+        fetch('/api/magazyn'),
+        fetch('/api/dostawy'),
+        fetch('/api/sku-index'),
+      ]);
+
+      const planData = await planRes.json();
+      const invData = await invRes.json();
+      const delData = await delRes.json();
+      const skuData = await skuRes.json();
+
+      if (!planRes.ok || !planData.success) throw new Error(planData.error || 'Błąd Planera');
+      if (!invRes.ok || !invData.success) throw new Error(invData.error || 'Błąd Magazynu');
+      if (!delRes.ok) throw new Error(delData.error || 'Błąd Dostaw');
+      if (!skuRes.ok || !skuData.success) throw new Error(skuData.error || 'Błąd SKU');
+
+      plannerRows = normalizeRows(planData.data?.rows);
+      inventoryMap = buildInventoryMap(invData.items || []);
+      deliveriesRowsRaw = Array.isArray(delData.rows) ? delData.rows : [];
+      deliveriesMap = buildDeliveriesMap(deliveriesRowsRaw);
+      setSkuIndex(skuData.items || [], skuData.suppliers || {});
+
+      const added = ensureMinimumRows();
+      render();
+      const sourceWarning = (delData && delData.warning && delData.warning.active)
+        ? delData.warning
+        : ((skuData && skuData.warning && skuData.warning.active) ? skuData.warning : null);
+      if (sourceWarning) {
+        setStatus(`Uwaga: ${sourceWarning.message || 'Wykryto anomalię danych źródłowych.'}`, false);
+      } else {
+        setStatus('Gotowe');
+      }
+      if (added) saveRowsDebounced();
+    } catch (e) {
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger py-4">Błąd: ${esc(e.message || 'Nie udało się załadować danych')}</td></tr>`;
+      }
+      setStatus('Błąd ładowania', false);
+    }
+  }
+
+  bindEvents();
+  loadAll();
+})();
+</script>
+{% endblock %}

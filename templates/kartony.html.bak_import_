@@ -1,0 +1,186 @@
+{% extends "base_panel.html" %}
+{% block title %}Kartonowanie{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <h2 class="mb-0">Kartonowanie (części w kartonach)</h2>
+      <span class="text-muted small">Produkt → kartony → lista części</span>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-12 col-lg-4">
+        <div class="p-3 rounded border bg-white">
+          <div class="mb-2">
+            <label class="form-label mb-1">Szukaj</label>
+            <input id="packSearch" type="text" class="form-control form-control-sm" placeholder="np. skyline, karton 2/4, śruba…">
+          </div>
+          <div class="mb-0">
+            <label class="form-label mb-1">Produkty</label>
+            <div id="productsList" class="list-group" style="max-height: 520px; overflow:auto;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-8">
+        <div class="p-3 rounded border bg-white">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+            <div class="fw-semibold" id="selectedProductTitle">—</div>
+            <div class="d-flex gap-2">
+              <button id="toggleEditorBtn" type="button" class="btn btn-sm btn-outline-secondary">Edytuj</button>
+              <button id="saveEditorBtn" type="button" class="btn btn-sm btn-primary d-none">Zapisz</button>
+            </div>
+          </div>
+
+          <div id="viewerWrap">
+            <div id="boxesWrap" class="accordion"></div>
+            <div class="text-muted small mt-3">
+              OCR ze zdjęcia spisu części jest możliwy, ale wymaga osobnej integracji (OCR + dopasowanie formatu).
+            </div>
+          </div>
+
+          <div id="editorWrap" class="d-none">
+            <div class="text-muted small mb-2">
+              Edytujesz JSON. Struktura: <code>{"products":[{"name":"...","boxes":[{"name":"Karton 1/4","parts":["..."]}]}]}</code>
+            </div>
+            <textarea id="jsonEditor" class="form-control" rows="18" spellcheck="false" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px;"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const productsList = document.getElementById('productsList');
+  const boxesWrap = document.getElementById('boxesWrap');
+  const selectedProductTitle = document.getElementById('selectedProductTitle');
+  const packSearch = document.getElementById('packSearch');
+  const toggleEditorBtn = document.getElementById('toggleEditorBtn');
+  const saveEditorBtn = document.getElementById('saveEditorBtn');
+  const viewerWrap = document.getElementById('viewerWrap');
+  const editorWrap = document.getElementById('editorWrap');
+  const jsonEditor = document.getElementById('jsonEditor');
+
+  let db = { products: [] };
+  let selectedIdx = -1;
+
+  const escapeHtml = (value) => (value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+  const fetchDb = async () => {
+    const res = await fetch('/api/kartony');
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Nie udało się pobrać danych');
+    db = data.data || { products: [] };
+    jsonEditor.value = JSON.stringify(db, null, 2);
+  };
+
+  const renderProducts = () => {
+    const q = (packSearch.value || '').toLowerCase().trim();
+    const products = Array.isArray(db.products) ? db.products : [];
+    const filtered = !q ? products : products.filter(p => JSON.stringify(p).toLowerCase().includes(q));
+    productsList.innerHTML = filtered.map((p, idx) => {
+      const isActive = (products.indexOf(p) === selectedIdx);
+      return `
+        <button type="button" class="list-group-item list-group-item-action ${isActive ? 'active' : ''}" data-idx="${products.indexOf(p)}">
+          ${escapeHtml(p.name || '—')}
+          <div class="small ${isActive ? 'text-white-50' : 'text-muted'}">${(p.boxes || []).length} kart.</div>
+        </button>
+      `;
+    }).join('') || '<div class="text-muted small p-2">Brak produktów.</div>';
+  };
+
+  const renderBoxes = () => {
+    const products = Array.isArray(db.products) ? db.products : [];
+    const product = products[selectedIdx];
+    if (!product) {
+      selectedProductTitle.textContent = '—';
+      boxesWrap.innerHTML = '<div class="text-muted small">Wybierz produkt po lewej.</div>';
+      return;
+    }
+    selectedProductTitle.textContent = product.name || '—';
+    const boxes = Array.isArray(product.boxes) ? product.boxes : [];
+    boxesWrap.innerHTML = boxes.map((b, i) => {
+      const parts = Array.isArray(b.parts) ? b.parts : [];
+      return `
+        <div class="accordion-item">
+          <h2 class="accordion-header" id="box-h-${i}">
+            <button class="accordion-button ${i === 0 ? '' : 'collapsed'}" type="button" data-bs-toggle="collapse" data-bs-target="#box-c-${i}">
+              ${escapeHtml(b.name || `Karton ${i+1}`)} <span class="ms-2 text-muted small">(${parts.length} części)</span>
+            </button>
+          </h2>
+          <div id="box-c-${i}" class="accordion-collapse collapse ${i === 0 ? 'show' : ''}" data-bs-parent="#boxesWrap">
+            <div class="accordion-body">
+              <ul class="mb-0">
+                ${parts.map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-muted">Brak części</li>'}
+              </ul>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('') || '<div class="text-muted small">Brak kartonów dla tego produktu.</div>';
+  };
+
+  productsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-idx]');
+    if (!btn) return;
+    selectedIdx = Number(btn.dataset.idx);
+    renderProducts();
+    renderBoxes();
+  });
+
+  packSearch.addEventListener('input', () => {
+    renderProducts();
+  });
+
+  toggleEditorBtn.addEventListener('click', () => {
+    const isEditor = !editorWrap.classList.contains('d-none');
+    if (isEditor) {
+      editorWrap.classList.add('d-none');
+      viewerWrap.classList.remove('d-none');
+      saveEditorBtn.classList.add('d-none');
+      toggleEditorBtn.textContent = 'Edytuj';
+    } else {
+      editorWrap.classList.remove('d-none');
+      viewerWrap.classList.add('d-none');
+      saveEditorBtn.classList.remove('d-none');
+      toggleEditorBtn.textContent = 'Podgląd';
+      jsonEditor.value = JSON.stringify(db, null, 2);
+    }
+  });
+
+  saveEditorBtn.addEventListener('click', async () => {
+    try {
+      const next = JSON.parse(jsonEditor.value);
+      const res = await fetch('/api/kartony', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: next }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Nie udało się zapisać');
+      db = next;
+      toggleEditorBtn.click();
+      renderProducts();
+      renderBoxes();
+    } catch (err) {
+      alert(err.message || 'Błąd');
+    }
+  });
+
+  (async () => {
+    await fetchDb();
+    renderProducts();
+    renderBoxes();
+  })().catch((e) => alert(e.message || 'Błąd'));
+})();
+</script>
+{% endblock %}
+

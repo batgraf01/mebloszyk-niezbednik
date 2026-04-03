@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+
+# Local runtime data
+*.db
+shared/
+uploads/
+excel_snapshots/
+dostawy_cache.json
+
+# Local secrets/env
+.env
+.env.*
+
+# Temporary/editor artifacts
+*.log
+*.tmp
+.DS_Store
+
+# Historical local backups
+*.bak
+app.py.backup_
+app.py.bak_*
+app.py.local_backup_*
+
+# Large local data snapshots
+*.xlsx

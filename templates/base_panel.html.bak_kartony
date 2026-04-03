@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>batgraf • {% block title %}Panel główny{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 375 375'%3E%3Cpath fill='%230f6cbd' d='M 94.148438 117.667969 L 140.664062 164.167969 L 94.148438 210.667969 L 47.628906 164.167969 Z' fill-opacity='0.6' fill-rule='nonzero'/%3E%3Cpath fill='%230f6cbd' d='M 47.632812 164.167969 L 94.148438 210.667969 L 47.632812 257.167969 L 7.078125 216.628906 C 6.6875 216.238281 6.339844 215.8125 6.03125 215.351562 C 5.722656 214.890625 5.460938 214.40625 5.25 213.894531 C 5.039062 213.382812 4.878906 212.855469 4.769531 212.3125 C 4.664062 211.769531 4.609375 211.21875 4.609375 210.667969 C 4.609375 210.113281 4.664062 209.566406 4.769531 209.019531 C 4.878906 208.476562 5.039062 207.949219 5.25 207.441406 C 5.460938 206.929688 5.722656 206.441406 6.03125 205.980469 C 6.339844 205.519531 6.6875 205.09375 7.078125 204.703125 Z' fill-opacity='0.8' fill-rule='nonzero'/%3E%3Cpath fill='%230f6cbd' d='M 187.179688 117.667969 L 233.695312 164.167969 L 187.179688 210.667969 L 140.664062 164.167969 Z' fill-opacity='0.6' fill-rule='nonzero'/%3E%3Cpath fill='%230f6cbd' d='M 140.664062 164.167969 L 187.179688 210.667969 L 140.664062 257.167969 L 94.144531 210.667969 Z' fill-opacity='0.8' fill-rule='nonzero'/%3E%3Cpath fill='%230f6cbd' d='M 187.179688 210.667969 L 233.695312 257.167969 L 193.144531 297.703125 C 192.753906 298.097656 192.328125 298.445312 191.867188 298.753906 C 191.40625 299.0625 190.917969 299.320312 190.40625 299.53125 C 189.894531 299.746094 189.367188 299.902344 188.824219 300.011719 C 188.28125 300.121094 187.734375 300.175781 187.179688 300.175781 C 186.625 300.175781 186.078125 300.121094 185.535156 300.011719 C 184.992188 299.902344 184.464844 299.746094 183.953125 299.53125 C 183.441406 299.320312 182.953125 299.0625 182.492188 298.753906 C 182.03125 298.445312 181.605469 298.097656 181.214844 297.703125 L 140.664062 257.167969 Z' fill-opacity='1' fill-rule='nonzero'/%3E%3Cpath fill='%230f6cbd' d='M 94.148438 210.667969 L 140.664062 257.167969 L 100.113281 297.703125 C 99.71875 298.097656 99.292969 298.445312 98.832031 298.753906 C 98.371094 299.0625 97.886719 299.320312 97.375 299.53125 C 96.863281 299.746094 96.335938 299.902344 95.792969 300.011719 C 95.25 300.121094 94.699219 300.175781 94.148438 300.175781 C 93.59375 300.175781 93.042969 300.121094 92.5 300.011719 C 91.957031 299.902344 91.429688 299.746094 90.917969 299.53125 C 90.40625 299.320312 89.921875 299.0625 89.460938 298.753906 C 89 298.445312 88.574219 298.097656 88.183594 297.703125 L 47.628906 257.167969 Z' fill-opacity='1' fill-rule='nonzero'/%3E%3C/svg%3E">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --primary: #0f6cbd;
+      --text: #1f2532;
+      --nav-expanded: 240px;
+      --nav-collapsed: 104px;
+    }
+    body {
+      background: var(--bg);
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text);
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+    }
+    h1, h2, h3, .h1, .h2, .h3 { color: var(--primary); font-weight: 600; }
+    h1 { font-size: 20px; }
+    h2 { font-size: 17px; }
+    h3, .h3 { font-size: 15px; }
+    .card { border: 1px solid #e6e9ef; box-shadow: 0 8px 20px rgba(0,0,0,0.05); }
+    .card-body { padding: 1rem; }
+    .topbar {
+      background: #fff;
+      border-bottom: 1px solid #e6e9ef;
+      padding: 0.75rem 1.25rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      margin: 0;
+    }
+    .top-actions { display: inline-flex; align-items: center; gap: 10px; }
+    .top-toggle {
+      width: 34px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      border: 1px solid rgba(15, 108, 189, 0.35);
+      background: rgba(15, 108, 189, 0.10);
+      color: var(--primary);
+      cursor: pointer;
+      transition: all .12s ease;
+    }
+    .top-toggle:hover {
+      background: rgba(15, 108, 189, 0.16);
+      border-color: rgba(15, 108, 189, 0.55);
+      transform: translateY(-1px);
+    }
+    .top-gear {
+      width: 34px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      border: 1px solid #ae4ff1;
+      background: transparent;
+      color: #6c757d;
+      text-decoration: none;
+      transition: all .12s ease;
+    }
+    .top-gear:hover {
+      background: rgba(174, 79, 241, 0.1);
+      border-color: #ae4ff1;
+      transform: translateY(-1px);
+    }
+    .top-logout {
+      width: 34px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      border: 1px solid #dc3545;
+      background: transparent;
+      color: #6c757d;
+      text-decoration: none;
+      transition: all .12s ease;
+      font-size: 0;
+    }
+    .top-logout:hover {
+      background: rgba(220, 53, 69, 0.1);
+      border-color: #dc3545;
+      transform: translateY(-1px);
+    }
+    .top-logout i {
+      font-size: 16px;
+    }
+    .panel-layout {
+      display: flex;
+      gap: 0;
+    }
+    .col-nav {
+      background: #fff;
+      min-height: 100vh;
+      overflow: hidden;
+      width: var(--nav-expanded);
+      max-width: var(--nav-expanded);
+      min-width: var(--nav-expanded);
+      flex: 0 0 var(--nav-expanded);
+      transition: transform 0.25s ease, width 0.25s ease, flex-basis 0.25s ease, max-width 0.25s ease, min-width 0.25s ease;
+      will-change: transform;
+      padding-left: 0;
+      padding-right: 0;
+      transform: translateX(0);
+    }
+    .col-main {
+      min-width: 0;
+      flex: 1 1 0;
+      max-width: 100%;
+      transition: all 0.4s ease;
+    }
+    .nav-text {
+      display: block;
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+    }
+    .nav-panel {
+      position: sticky;
+      top: 0;
+    }
+    .nav-tile {
+      border-radius: 0;
+      padding: 10px 0.9rem;
+      background: #fff;
+      border: none;
+      border-left: 2px solid transparent;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      color: #5e5e5e !important;
+      text-decoration: none;
+      font-weight: 400 !important;
+      position: relative;
+    }
+    .nav-arrow {
+      position: absolute;
+      right: -2px;
+      top: 0;
+      bottom: 0;
+      width: 18px;
+      height: 100%;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .nav-tile.active .nav-arrow {
+      display: flex;
+    }
+    .nav-arrow img.nav-arrow-img {
+      width: 14px;
+      height: 32px;
+      object-fit: contain;
+    }
+    .nav-tile .h3, .nav-tile h3, .nav-tile .h3.mb-0, .nav-tile h3.mb-0 { 
+      font-weight: 400 !important; 
+      color: #5e5e5e !important; 
+    }
+    .nav-tile .text-secondary, .nav-tile .text-secondary.small { 
+      color: #5e5e5e !important; 
+      font-weight: 400 !important; 
+    }
+    .nav-tile:hover {
+      background: #f0f2f5;
+      color: #1f2532;
+      border-left-color: var(--primary);
+    }
+    .nav-tile.active {
+      border: none;
+      border-left: 2px solid var(--primary);
+      background: var(--primary);
+      color: #fff !important;
+    }
+    .nav-tile.active .app-icon { background: rgba(255,255,255,0.16); color: #fff; }
+    .nav-tile.active .h3, .nav-tile.active h3 { color: #fff !important; font-weight: 400 !important; }
+    .nav-tile.active .text-secondary { color: #fff !important; font-weight: 400 !important; }
+    .app-icon {
+      width: 38px; height: 38px;
+      display: inline-flex !important; 
+      align-items: center; 
+      justify-content: center;
+      border-radius: 4px;
+      background: #e8e9eb; 
+      color: #5e5e5e; 
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .app-icon i {
+      display: inline-block !important;
+      font-style: normal;
+      font-weight: normal;
+      font-variant: normal;
+      text-transform: none;
+      line-height: 1;
+      vertical-align: -.125em;
+    }
+    .nav-tile.active .app-icon { 
+      background: #fff; 
+      color: var(--primary); 
+    }
+    /* mini state: icons only */
+    body.mini .col-nav {
+      width: var(--nav-collapsed);
+      max-width: var(--nav-collapsed);
+      min-width: var(--nav-collapsed);
+      flex: 0 0 var(--nav-collapsed);
+      transform: translateX(0);
+    }
+    body.mini .nav-tile {
+      justify-content: center;
+      padding: 10px 0.5rem;
+      gap: 0;
+    }
+    body.mini .nav-text {
+      opacity: 0;
+      visibility: hidden;
+    }
+    body.mini .nav-arrow {
+      display: none !important;
+    }
+    /* hidden state: off-canvas */
+    body.hidden .col-nav {
+      transform: translateX(-100%);
+      width: 0;
+      max-width: 0;
+      min-width: 0;
+      flex: 0 0 0;
+    }
+    body.hidden .nav-text {
+      opacity: 0;
+      visibility: hidden;
+    }
+    body.hidden .nav-arrow {
+      display: none !important;
+    }
+    .main-content-area {
+      padding: 1.5rem;
+      background: var(--bg);
+      min-height: calc(100vh - 60px);
+    }
+  </style>
+  {% block extra_css %}{% endblock %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='rozmiary.css') }}?v={{ cache_buster }}">
+</head>
+<body>
+  <div class="container-fluid px-0 pt-0 pb-4">
+    <div class="topbar d-flex align-items-center justify-content-between">
+      <div class="d-flex align-items-center" style="gap: 1.5rem;">
+        <button id="nav-toggle" class="top-toggle" aria-label="Zwiń/rozwiń menu">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="6" width="18" height="2.5" rx="1.25" fill="#0f6cbd"/>
+            <rect x="3" y="10.75" width="18" height="2.5" rx="1.25" fill="#0f6cbd"/>
+            <rect x="3" y="15.5" width="18" height="2.5" rx="1.25" fill="#0f6cbd"/>
+          </svg>
+        </button>
+        <span class="d-inline-flex align-items-center justify-content-center" style="width: 68px; height: 68px;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 375 375" width="60" height="60" preserveAspectRatio="xMidYMid meet" aria-label="Logo" role="img">
+            <path fill="#0f6cbd" d="M 94.148438 117.667969 L 140.664062 164.167969 L 94.148438 210.667969 L 47.628906 164.167969 Z M 94.148438 117.667969 " fill-opacity="0.6" fill-rule="nonzero"/>
+            <path fill="#0f6cbd" d="M 47.632812 164.167969 L 94.148438 210.667969 L 47.632812 257.167969 L 7.078125 216.628906 C 6.6875 216.238281 6.339844 215.8125 6.03125 215.351562 C 5.722656 214.890625 5.460938 214.40625 5.25 213.894531 C 5.039062 213.382812 4.878906 212.855469 4.769531 212.3125 C 4.664062 211.769531 4.609375 211.21875 4.609375 210.667969 C 4.609375 210.113281 4.664062 209.566406 4.769531 209.019531 C 4.878906 208.476562 5.039062 207.949219 5.25 207.441406 C 5.460938 206.929688 5.722656 206.441406 6.03125 205.980469 C 6.339844 205.519531 6.6875 205.09375 7.078125 204.703125 Z M 47.632812 164.167969 " fill-opacity="0.8" fill-rule="nonzero"/>
+            <path fill="#0f6cbd" d="M 187.179688 117.667969 L 233.695312 164.167969 L 187.179688 210.667969 L 140.664062 164.167969 Z M 187.179688 117.667969 " fill-opacity="0.6" fill-rule="nonzero"/>
+            <path fill="#0f6cbd" d="M 140.664062 164.167969 L 187.179688 210.667969 L 140.664062 257.167969 L 94.144531 210.667969 Z M 140.664062 164.167969 " fill-opacity="0.8" fill-rule="nonzero"/>
+            <path fill="#0f6cbd" d="M 187.179688 210.667969 L 233.695312 257.167969 L 193.144531 297.703125 C 192.753906 298.097656 192.328125 298.445312 191.867188 298.753906 C 191.40625 299.0625 190.917969 299.320312 190.40625 299.53125 C 189.894531 299.746094 189.367188 299.902344 188.824219 300.011719 C 188.28125 300.121094 187.734375 300.175781 187.179688 300.175781 C 186.625 300.175781 186.078125 300.121094 185.535156 300.011719 C 184.992188 299.902344 184.464844 299.746094 183.953125 299.53125 C 183.441406 299.320312 182.953125 299.0625 182.492188 298.753906 C 182.03125 298.445312 181.605469 298.097656 181.214844 297.703125 L 140.664062 257.167969 Z M 187.179688 210.667969 " fill-opacity="1" fill-rule="nonzero"/>
+            <path fill="#0f6cbd" d="M 94.148438 210.667969 L 140.664062 257.167969 L 100.113281 297.703125 C 99.71875 298.097656 99.292969 298.445312 98.832031 298.753906 C 98.371094 299.0625 97.886719 299.320312 97.375 299.53125 C 96.863281 299.746094 96.335938 299.902344 95.792969 300.011719 C 95.25 300.121094 94.699219 300.175781 94.148438 300.175781 C 93.59375 300.175781 93.042969 300.121094 92.5 300.011719 C 91.957031 299.902344 91.429688 299.746094 90.917969 299.53125 C 90.40625 299.320312 89.921875 299.0625 89.460938 298.753906 C 89 298.445312 88.574219 298.097656 88.183594 297.703125 L 47.628906 257.167969 Z M 94.148438 210.667969 " fill-opacity="1" fill-rule="nonzero"/>
+            <path fill="#0f6cbd" d="M 280.214844 210.667969 L 326.730469 257.167969 L 286.179688 297.703125 C 285.785156 298.097656 285.359375 298.445312 284.898438 298.753906 C 284.4375 299.0625 283.953125 299.320312 283.441406 299.53125 C 282.929688 299.746094 282.402344 299.902344 281.859375 300.011719 C 281.316406 300.121094 280.765625 300.175781 280.214844 300.175781 C 279.660156 300.175781 279.109375 300.121094 278.566406 300.011719 C 278.023438 299.902344 277.496094 299.746094 276.984375 299.53125 C 276.472656 299.320312 275.988281 299.0625 275.527344 298.753906 C 275.066406 298.445312 274.640625 298.097656 274.25 297.703125 L 233.695312 257.167969 Z M 280.214844 210.667969 " fill-opacity="1" fill-rule="nonzero"/>
+            <path fill="#0f6cbd" d="M 233.695312 164.167969 L 280.210938 210.667969 L 233.695312 257.167969 L 187.179688 210.667969 Z M 233.695312 164.167969 " fill-opacity="0.8" fill-rule="nonzero"/>
+            <path fill="#0f6cbd" d="M 326.730469 164.167969 L 367.28125 204.703125 C 367.671875 205.09375 368.023438 205.519531 368.328125 205.980469 C 368.636719 206.441406 368.898438 206.929688 369.109375 207.441406 C 369.320312 207.949219 369.480469 208.476562 369.589844 209.019531 C 369.695312 209.566406 369.75 210.113281 369.75 210.667969 C 369.75 211.21875 369.695312 211.769531 369.589844 212.3125 C 369.480469 212.855469 369.320312 213.382812 369.109375 213.894531 C 368.898438 214.40625 368.636719 214.890625 368.328125 215.351562 C 368.023438 215.8125 367.671875 216.238281 367.28125 216.628906 L 326.730469 257.167969 L 280.210938 210.667969 Z M 326.730469 164.167969 " fill-opacity="0.8" fill-rule="nonzero"/>
+            <path fill="#0f6cbd" d="M 280.214844 117.667969 L 326.730469 164.167969 L 280.214844 210.667969 L 233.695312 164.167969 Z M 280.214844 117.667969 " fill-opacity="0.6" fill-rule="nonzero"/>
+            <path fill="#0f6cbd" d="M 145.136719 75.640625 L 187.179688 117.667969 L 140.664062 164.167969 L 94.144531 117.667969 L 136.1875 75.640625 C 136.484375 75.34375 136.800781 75.082031 137.148438 74.851562 C 137.492188 74.621094 137.855469 74.425781 138.242188 74.269531 C 138.625 74.109375 139.019531 73.988281 139.429688 73.910156 C 139.835938 73.828125 140.246094 73.785156 140.664062 73.785156 C 141.078125 73.785156 141.488281 73.828125 141.898438 73.910156 C 142.304688 73.988281 142.699219 74.109375 143.082031 74.269531 C 143.46875 74.425781 143.832031 74.621094 144.175781 74.851562 C 144.523438 75.082031 144.84375 75.34375 145.136719 75.640625 Z M 145.136719 75.640625 " fill-opacity="0.4" fill-rule="nonzero"/>
+            <path fill="#0f6cbd" d="M 238.167969 75.640625 L 280.210938 117.667969 L 233.695312 164.167969 L 187.179688 117.667969 L 229.222656 75.640625 C 229.515625 75.34375 229.835938 75.082031 230.179688 74.851562 C 230.527344 74.621094 230.890625 74.425781 231.273438 74.269531 C 231.65625 74.109375 232.054688 73.988281 232.460938 73.910156 C 232.867188 73.828125 233.28125 73.785156 233.695312 73.785156 C 234.109375 73.785156 234.523438 73.828125 234.929688 73.910156 C 235.335938 73.988281 235.734375 74.109375 236.117188 74.269531 C 236.5 74.425781 236.863281 74.621094 237.210938 74.851562 C 237.554688 75.082031 237.875 75.34375 238.167969 75.640625 Z M 238.167969 75.640625 " fill-opacity="0.4" fill-rule="nonzero"/>
+          </svg>
+        </span>
+        <h1 class="mb-0" style="font-size: 20px; font-weight: 600; color: var(--primary);">Niezbednik vol 1.0.24</h1>
+      </div>
+      <div class="top-actions">
+        <a id="top-settings" class="top-gear" href="{{ url_for('ustawienia') if 'ustawienia' in request.endpoint else '#' }}" title="Ustawienia" aria-label="Ustawienia">
+          <i class="bi bi-gear"></i>
+        </a>
+        <a class="top-logout" href="{{ url_for('logout') }}" title="Wyloguj" aria-label="Wyloguj">
+          <i class="bi bi-box-arrow-right"></i>
+        </a>
+      </div>
+    </div>
+
+    <div class="panel-layout">
+      <div class="col-nav">
+        <div class="d-flex flex-column nav-panel" id="nav-tiles">
+          <a class="nav-tile {% if request.endpoint == 'rozmiary' %}active{% endif %}" href="{{ url_for('rozmiary') }}" style="font-weight: 400; {% if request.endpoint == 'rozmiary' %}color: #fff;{% else %}color: #5e5e5e;{% endif %}">
+            <div class="app-icon" style="{% if request.endpoint == 'rozmiary' %}background: #fff; color: var(--primary);{% else %}background: #e8e9eb; color: #5e5e5e;{% endif %}"><i class="bi bi-boxes"></i></div>
+            <div class="nav-text">
+              <div class="h3 mb-0" style="font-weight: 400; {% if request.endpoint == 'rozmiary' %}color: #fff;{% else %}color: #5e5e5e;{% endif %}">Rozmiary</div>
+            </div>
+            <div class="nav-arrow">
+              <img class="nav-arrow-img" src="https://www.bootstrapget.com/demos/templatemonster/lead-admin-panel/assets/images/menu-arrow.svg" alt="">
+            </div>
+          </a>
+          <a class="nav-tile {% if request.endpoint == 'magazyn_new' %}active{% endif %}" href="{{ url_for('magazyn_new') }}" style="font-weight: 400; {% if request.endpoint == 'magazyn_new' %}color: #fff;{% else %}color: #5e5e5e;{% endif %}">
+            <div class="app-icon" style="{% if request.endpoint == 'magazyn_new' %}background: #fff; color: var(--primary);{% else %}background: #e8e9eb; color: #5e5e5e;{% endif %}"><i class="bi bi-columns-gap"></i></div>
+            <div class="nav-text">
+              <div class="h3 mb-0" style="font-weight: 400; {% if request.endpoint == 'magazyn_new' %}color: #fff;{% else %}color: #5e5e5e;{% endif %}">Magazyn</div>
+            </div>
+            <div class="nav-arrow">
+              <img class="nav-arrow-img" src="https://www.bootstrapget.com/demos/templatemonster/lead-admin-panel/assets/images/menu-arrow.svg" alt="">
+            </div>
+          </a>
+          <a class="nav-tile {% if request.endpoint == 'reklamacje' %}active{% endif %}" href="{{ url_for('reklamacje') }}" style="font-weight: 400; {% if request.endpoint == 'reklamacje' %}color: #fff;{% else %}color: #5e5e5e;{% endif %}">
+            <div class="app-icon" style="{% if request.endpoint == 'reklamacje' %}background: #fff; color: var(--primary);{% else %}background: #e8e9eb; color: #5e5e5e;{% endif %}"><i class="bi bi-bootstrap-reboot"></i></div>
+            <div class="nav-text">
+              <div class="h3 mb-0" style="font-weight: 400; {% if request.endpoint == 'reklamacje' %}color: #fff;{% else %}color: #5e5e5e;{% endif %}">Reklamacje</div>
+            </div>
+            <div class="nav-arrow">
+              <img class="nav-arrow-img" src="https://www.bootstrapget.com/demos/templatemonster/lead-admin-panel/assets/images/menu-arrow.svg" alt="">
+            </div>
+          </a>
+          <a class="nav-tile {% if request.endpoint == 'ustawienia' %}active{% endif %}" href="{{ url_for('ustawienia') }}" style="font-weight: 400; {% if request.endpoint == 'ustawienia' %}color: #fff;{% else %}color: #5e5e5e;{% endif %}">
+            <div class="app-icon" style="{% if request.endpoint == 'ustawienia' %}background: #fff; color: var(--primary);{% else %}background: #e8e9eb; color: #5e5e5e;{% endif %}"><i class="bi bi-gear"></i></div>
+            <div class="nav-text">
+              <div class="h3 mb-0" style="font-weight: 400; {% if request.endpoint == 'ustawienia' %}color: #fff;{% else %}color: #5e5e5e;{% endif %}">Ustawienia</div>
+            </div>
+            <div class="nav-arrow">
+              <img class="nav-arrow-img" src="https://www.bootstrapget.com/demos/templatemonster/lead-admin-panel/assets/images/menu-arrow.svg" alt="">
+            </div>
+          </a>
+        </div>
+      </div>
+      <div class="col-main">
+        <div class="main-content-area">
+          {% block content %}{% endblock %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+  <script>
+    // Dwa stany: expanded <-> hidden (mini pomijamy)
+    document.addEventListener('DOMContentLoaded', () => {
+      const navToggle = document.getElementById('nav-toggle');
+      navToggle?.addEventListener('click', () => {
+        const b = document.body;
+        const isHidden = b.classList.contains('hidden');
+        b.classList.remove('mini');
+        if (isHidden) {
+          b.classList.remove('hidden'); // back to expanded
+        } else {
+          b.classList.add('hidden');    // hide completely
+        }
+      });
+    });
+  </script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,90 @@
+═══════════════════════════════════════════════════════════════
+  JAK WDRÓŻYĆ APLIKACJĘ MAGAZYN NA SERWER AFTERMARKET
+═══════════════════════════════════════════════════════════════
+
+📋 KROK PO KROKU:
+
+1. PRZYGOTOWANIE PLIKÓW:
+   ✓ Masz już wszystkie pliki w folderze mag1
+
+2. POŁĄCZENIE FTP:
+   - Otwórz klienta FTP (FileZilla, WinSCP, Total Commander, itp.)
+   - Połącz się z serwerem Aftermarket
+   - Użyj danych FTP z panelu hostingu
+
+3. WGRANIE PLIKÓW:
+   
+   Wgraj te pliki i foldery do głównego katalogu domeny 
+   (zwykle: public_html, www, lub główny katalog FTP):
+   
+   ✓ app.py
+   ✓ app.wsgi (dla serwerów z WSGI)
+   ✓ requirements.txt
+   ✓ static/ (CAŁY folder ze style.css)
+   ✓ templates/ (CAŁY folder z wszystkimi .html)
+
+4. STRUKTURA NA SERWERZE:
+   
+   /public_html/              (lub główny katalog)
+   ├── app.py
+   ├── app.wsgi
+   ├── requirements.txt
+   ├── static/
+   │   └── style.css
+   └── templates/
+       ├── login.html
+       ├── magazyn.html
+       ├── availability.html
+       ├── base.html
+       ├── dashboard.html
+       └── tickets.html
+
+5. INSTALACJA ZALEŻNOŚCI:
+   
+   Jeśli masz dostęp do panelu hostingu lub SSH:
+   - Zaloguj się do panelu
+   - Znajdź opcję "Python" lub "Terminal"
+   - Uruchom: pip3 install -r requirements.txt
+   
+   LUB skontaktuj się z hostingiem, aby zainstalowali Flask
+
+6. KONFIGURACJA SERWERA:
+   
+   Sprawdź w panelu hostingu:
+   - Czy Python jest dostępny
+   - Czy Flask jest obsługiwany
+   - Czy można uruchomić aplikacje WSGI
+   
+   Może być potrzebny plik .htaccess (sprawdź dokumentację hostingu)
+
+7. TEST:
+   - Otwórz stronę w przeglądarce
+   - Powinieneś zobaczyć stronę logowania
+
+═══════════════════════════════════════════════════════════════
+
+⚠️  WAŻNE:
+
+- Flask wymaga serwera z obsługą Python
+- Jeśli masz tylko dostęp FTP, możesz nie móc uruchomić aplikacji
+- Skontaktuj się z hostingiem, aby upewnić się, że Flask jest wspierany
+- Może być potrzebny upgrade planu hostingu
+
+═══════════════════════════════════════════════════════════════
+
+🔐 BEZPIECZEŃSTWO:
+
+Po wdrożeniu ZMIEŃ klucz sesji w app.py (linia 6):
+app.secret_key = 'TWOJ-LOSOWY-KLUCZ-TUTAJ'
+
+═══════════════════════════════════════════════════════════════
+
+📞 POMOC:
+
+Jeśli masz problemy:
+1. Sprawdź logi serwera
+2. Skontaktuj się z hostingiem Aftermarket
+3. Sprawdź czy Python/Flask jest dostępny
+
+═══════════════════════════════════════════════════════════════
+

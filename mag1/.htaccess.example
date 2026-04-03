@@ -1,0 +1,13 @@
+# Przykładowy plik .htaccess dla Flask na Apache
+# Sprawdź w dokumentacji hostingu, czy jest potrzebny i jak go skonfigurować
+
+# Przekierowanie do aplikacji WSGI
+# WSGIScriptAlias / /sciezka/do/app.wsgi
+
+# Lub przekierowanie do app.py (jeśli hosting obsługuje)
+# RewriteEngine On
+# RewriteCond %{REQUEST_FILENAME} !-f
+# RewriteRule ^(.*)$ app.py/$1 [QSA,L]
+
+# UWAGA: Skontaktuj się z hostingiem, aby upewnić się, jak skonfigurować aplikację Python/Flask
+

@@ -1,0 +1,503 @@
+{% extends "base_panel.html" %}
+{% block title %}Kontakty{% endblock %}
+
+{% block content %}
+<style>
+  .kontakt-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+  }
+  .kontakt-card {
+    border-radius: 12px;
+    border: 1px solid #e5e8ee;
+    background: #fff;
+    padding: 12px 14px;
+    min-height: 0;
+  }
+  .kontakt-card-inner {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .kontakt-card-avatar {
+    width: 56px;
+    height: 56px;
+    min-width: 56px;
+    border-radius: 50%;
+    background: linear-gradient(145deg, #f0f4f8 0%, #e8ecf2 100%);
+    border: 1px solid #e1e6ed;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .kontakt-card-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    padding: 4px;
+  }
+  .kontakt-card-avatar--empty {
+    color: #9aa4b2;
+    font-size: 1.35rem;
+  }
+  .kontakt-card-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .kontakt-card-headline {
+    font-size: 0.95rem;
+    line-height: 1.35;
+    color: #222;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .kontakt-card-headline .kontakt-card-name {
+    font-weight: 600;
+  }
+  .kontakt-card-head-sep {
+    color: #b8c0cc;
+    font-weight: 500;
+    padding: 0 2px;
+  }
+  .kontakt-card-headline .kontakt-card-company-inline {
+    font-weight: 500;
+    color: #5e5e5e;
+  }
+  .kontakt-card-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .kontakt-card-meta {
+    font-size: 0.85rem;
+    color: #333;
+    word-break: break-word;
+  }
+  .kontakt-card-meta a {
+    color: #0f6cbd;
+    text-decoration: none;
+  }
+  .kontakt-card-meta a:hover {
+    text-decoration: underline;
+  }
+  .kontakt-card-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    margin-top: 2px;
+  }
+  #kontaktLogoPreviewWrap img {
+    max-height: 120px;
+    max-width: 100%;
+    object-fit: contain;
+    vertical-align: middle;
+  }
+  body.kontakt-delete-modal-open .modal-backdrop {
+    opacity: 0.78;
+  }
+</style>
+
+<div class="container-fluid">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <h3 class="mb-0" style="font-weight:400;">Kontakty</h3>
+    <button type="button" class="btn btn-primary btn-sm" id="btnKontaktAdd">
+      <i class="bi bi-plus-lg"></i> Dodaj kontakt
+    </button>
+  </div>
+
+  <div class="row mb-3 g-2 align-items-center">
+    <div class="col-12 col-lg-7 col-xl-6">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text bg-white border-end-0" title="Szukaj"><i class="bi bi-search text-muted"></i></span>
+        <input type="search" class="form-control border-start-0" id="kontaktySearch" placeholder="Szukaj na żywo: imię, nazwisko, firma, e-mail (np. grze ket)" autocomplete="off">
+      </div>
+    </div>
+  </div>
+
+  <div id="kontaktyStatus" class="small text-muted mb-2">Ładowanie…</div>
+  <div id="kontaktyEmpty" class="alert alert-light border d-none" role="status">Brak kontaktów. Dodaj pierwszy wpis przyciskiem powyżej.</div>
+  <div id="kontaktyNoResults" class="alert alert-light border d-none" role="status">Brak wyników — spróbuj innej frazy.</div>
+  <div id="kontaktyGrid" class="kontakt-grid"></div>
+</div>
+
+<div class="modal fade" id="modalKontakt" tabindex="-1" aria-labelledby="modalKontaktLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="modalKontaktLabel">Kontakt</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="kontaktEditId" value="">
+        <div class="mb-2">
+          <label class="form-label" for="kontaktFullName">Imię i nazwisko</label>
+          <input type="text" class="form-control form-control-sm" id="kontaktFullName" maxlength="200" autocomplete="name">
+        </div>
+        <div class="mb-2">
+          <label class="form-label" for="kontaktCompany">Nazwa firmy</label>
+          <input type="text" class="form-control form-control-sm" id="kontaktCompany" maxlength="200" autocomplete="organization">
+        </div>
+        <div class="mb-2">
+          <label class="form-label" for="kontaktPhone">Telefon</label>
+          <input type="text" class="form-control form-control-sm" id="kontaktPhone" maxlength="80" autocomplete="tel">
+        </div>
+        <div class="mb-2">
+          <label class="form-label" for="kontaktEmail">E-mail</label>
+          <input type="email" class="form-control form-control-sm" id="kontaktEmail" maxlength="200" autocomplete="email">
+        </div>
+        <div class="mb-2">
+          <label class="form-label" for="kontaktLogo">Logo firmy</label>
+          <input type="file" class="form-control form-control-sm" id="kontaktLogo" accept="image/png,image/jpeg,image/gif,image/webp">
+        </div>
+        <div class="mb-2 d-none" id="kontaktLogoPreviewWrap">
+          <div class="text-muted small mb-1">Podgląd (po zapisie serwer zmniejszy plik)</div>
+          <div class="border rounded p-2 bg-light text-center">
+            <img id="kontaktLogoPreviewImg" src="" alt="Podgląd logo">
+          </div>
+        </div>
+        <div class="form-check mb-2 d-none" id="kontaktRemoveLogoWrap">
+          <input class="form-check-input" type="checkbox" id="kontaktRemoveLogo">
+          <label class="form-check-label small" for="kontaktRemoveLogo">Usuń obecne logo</label>
+        </div>
+        <div id="kontaktFormMsg" class="small text-danger"></div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Anuluj</button>
+        <button type="button" class="btn btn-sm btn-primary" id="kontaktSaveBtn">Zapisz</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalKontaktDelete" tabindex="-1" aria-labelledby="modalKontaktDeleteLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header py-3 border-0 pb-0">
+        <h5 class="modal-title" id="modalKontaktDeleteLabel">Usunąć kontakt?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body py-2 small text-muted">
+        Tej operacji nie można cofnąć.
+      </div>
+      <div class="modal-footer py-3 border-0 pt-0 gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Anuluj</button>
+        <button type="button" class="btn btn-sm btn-danger" id="kontaktDeleteConfirmBtn">Usuń</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const grid = document.getElementById('kontaktyGrid');
+  const statusEl = document.getElementById('kontaktyStatus');
+  const emptyEl = document.getElementById('kontaktyEmpty');
+  const noResultsEl = document.getElementById('kontaktyNoResults');
+  const searchInput = document.getElementById('kontaktySearch');
+  let allContacts = [];
+  const modalEl = document.getElementById('modalKontakt');
+  const modalDeleteEl = document.getElementById('modalKontaktDelete');
+  let deleteContactId = null;
+  let logoPreviewObjectUrl = null;
+
+  function getKontaktModal() {
+    if (!modalEl || !window.bootstrap) return null;
+    return bootstrap.Modal.getOrCreateInstance(modalEl);
+  }
+  function getDeleteModal() {
+    if (!modalDeleteEl || !window.bootstrap) return null;
+    return bootstrap.Modal.getOrCreateInstance(modalDeleteEl);
+  }
+
+  if (modalDeleteEl) {
+    modalDeleteEl.addEventListener('shown.bs.modal', () => document.body.classList.add('kontakt-delete-modal-open'));
+    modalDeleteEl.addEventListener('hidden.bs.modal', () => document.body.classList.remove('kontakt-delete-modal-open'));
+  }
+
+  function clearLogoPreview() {
+    const wrap = document.getElementById('kontaktLogoPreviewWrap');
+    const img = document.getElementById('kontaktLogoPreviewImg');
+    if (logoPreviewObjectUrl) {
+      URL.revokeObjectURL(logoPreviewObjectUrl);
+      logoPreviewObjectUrl = null;
+    }
+    if (img) img.removeAttribute('src');
+    if (wrap) wrap.classList.add('d-none');
+  }
+
+  function showLogoPreview(src) {
+    const wrap = document.getElementById('kontaktLogoPreviewWrap');
+    const img = document.getElementById('kontaktLogoPreviewImg');
+    if (!wrap || !img || !src) return;
+    img.src = src;
+    wrap.classList.remove('d-none');
+  }
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  function contactMatchesQuery(c, q) {
+    if (!q) return true;
+    const tokens = String(q || '')
+      .toLowerCase()
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (!tokens.length) return true;
+
+    const hay = [c.full_name, c.company, c.email]
+      .map((x) => String(x || '').toLowerCase())
+      .join(' ');
+
+    // Wyszukiwanie łączone: każdy token musi wystąpić.
+    return tokens.every((t) => hay.includes(t));
+  }
+
+  function applyKontaktyFilter() {
+    const q = (searchInput && searchInput.value ? searchInput.value : '').trim().toLowerCase();
+    let list = Array.isArray(allContacts) ? allContacts.slice() : [];
+    if (q) {
+      list = list.filter((c) => contactMatchesQuery(c, q));
+    }
+    render(list);
+  }
+
+  function render(contacts) {
+    if (!grid) return;
+    grid.innerHTML = '';
+    const total = Array.isArray(allContacts) ? allContacts.length : 0;
+    if (!contacts || !contacts.length) {
+      if (total === 0) {
+        emptyEl.classList.remove('d-none');
+        noResultsEl.classList.add('d-none');
+      } else {
+        emptyEl.classList.add('d-none');
+        noResultsEl.classList.remove('d-none');
+      }
+      return;
+    }
+    emptyEl.classList.add('d-none');
+    noResultsEl.classList.add('d-none');
+    contacts.forEach((c) => {
+      const logo = (c.logo || '').trim();
+      const logoBlock = logo
+        ? `<img src="${esc(logo)}" alt="">`
+        : `<span class="kontakt-card-avatar--empty" aria-hidden="true"><i class="bi bi-building"></i></span>`;
+      const fullName = esc(c.full_name || '—');
+      const compRaw = (c.company || '').trim();
+      const headline = compRaw
+        ? `<span class="kontakt-card-name">${fullName}</span><span class="kontakt-card-head-sep"> · </span><span class="kontakt-card-company-inline">${esc(compRaw)}</span>`
+        : `<span class="kontakt-card-name">${fullName}</span>`;
+      const phone = (c.phone || '').trim();
+      const email = (c.email || '').trim();
+      const telHref = phone.replace(/\s+/g, '');
+      const card = document.createElement('div');
+      card.className = 'kontakt-card';
+      card.innerHTML = `
+        <div class="kontakt-card-inner">
+          <div class="kontakt-card-avatar" aria-hidden="true">${logoBlock}</div>
+          <div class="kontakt-card-main">
+            <div class="kontakt-card-headline">${headline}</div>
+            <div class="kontakt-card-details">
+              ${phone ? `<div class="kontakt-card-meta"><i class="bi bi-telephone me-1"></i><a href="tel:${esc(telHref)}">${esc(phone)}</a></div>` : ''}
+              ${email ? `<div class="kontakt-card-meta"><i class="bi bi-envelope me-1"></i><a href="mailto:${esc(email)}">${esc(email)}</a></div>` : ''}
+            </div>
+            <div class="kontakt-card-actions">
+              <button type="button" class="btn btn-sm btn-outline-primary kontakt-btn-edit" data-id="${esc(c.id)}">Edytuj</button>
+              <button type="button" class="btn btn-sm btn-outline-danger kontakt-btn-del" data-id="${esc(c.id)}">Usuń</button>
+            </div>
+          </div>
+        </div>`;
+      grid.appendChild(card);
+    });
+  }
+
+  async function load() {
+    statusEl.textContent = 'Ładowanie…';
+    try {
+      const r = await fetch('/api/kontakty', { credentials: 'same-origin' });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'Błąd');
+      allContacts = j.contacts || [];
+      applyKontaktyFilter();
+      statusEl.textContent = '';
+    } catch (e) {
+      statusEl.textContent = 'Nie udało się wczytać listy.';
+      console.error(e);
+    }
+  }
+
+  function resetForm() {
+    document.getElementById('kontaktEditId').value = '';
+    document.getElementById('kontaktFullName').value = '';
+    document.getElementById('kontaktCompany').value = '';
+    document.getElementById('kontaktPhone').value = '';
+    document.getElementById('kontaktEmail').value = '';
+    document.getElementById('kontaktLogo').value = '';
+    document.getElementById('kontaktRemoveLogo').checked = false;
+    document.getElementById('kontaktRemoveLogoWrap').classList.add('d-none');
+    document.getElementById('kontaktFormMsg').textContent = '';
+    document.getElementById('modalKontaktLabel').textContent = 'Nowy kontakt';
+    clearLogoPreview();
+  }
+
+  function openEdit(id) {
+    document.getElementById('kontaktFormMsg').textContent = '';
+    const rid = id != null ? String(id).trim() : '';
+    const c = (allContacts || []).find((x) => String(x.id) === rid);
+    if (!c) {
+      document.getElementById('kontaktFormMsg').textContent = 'Nie znaleziono kontaktu. Odśwież listę.';
+      return;
+    }
+    document.getElementById('kontaktEditId').value = c.id;
+    document.getElementById('kontaktFullName').value = c.full_name || '';
+    document.getElementById('kontaktCompany').value = c.company || '';
+    document.getElementById('kontaktPhone').value = c.phone || '';
+    document.getElementById('kontaktEmail').value = c.email || '';
+    document.getElementById('kontaktLogo').value = '';
+    document.getElementById('kontaktRemoveLogo').checked = false;
+    const hasLogo = !!(c.logo && String(c.logo).trim());
+    document.getElementById('kontaktRemoveLogoWrap').classList.toggle('d-none', !hasLogo);
+    document.getElementById('modalKontaktLabel').textContent = 'Edycja kontaktu';
+    clearLogoPreview();
+    if (hasLogo) {
+      showLogoPreview(c.logo + (c.logo.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now());
+    }
+    const m = getKontaktModal();
+    if (m) m.show();
+  }
+
+  document.getElementById('btnKontaktAdd').addEventListener('click', (ev) => {
+    ev.preventDefault();
+    resetForm();
+    document.getElementById('modalKontaktLabel').textContent = 'Nowy kontakt';
+    const m = getKontaktModal();
+    if (m) m.show();
+  });
+
+  async function saveKontakt() {
+    const msg = document.getElementById('kontaktFormMsg');
+    msg.textContent = '';
+    const id = document.getElementById('kontaktEditId').value.trim();
+    const fd = new FormData();
+    fd.append('full_name', document.getElementById('kontaktFullName').value);
+    fd.append('company', document.getElementById('kontaktCompany').value);
+    fd.append('phone', document.getElementById('kontaktPhone').value);
+    fd.append('email', document.getElementById('kontaktEmail').value);
+    const fileInput = document.getElementById('kontaktLogo');
+    if (fileInput.files && fileInput.files[0]) {
+      fd.append('logo', fileInput.files[0]);
+    }
+    if (id && document.getElementById('kontaktRemoveLogo').checked) {
+      fd.append('remove_logo', '1');
+    }
+
+    const url = id ? `/api/kontakty/${encodeURIComponent(id)}` : '/api/kontakty';
+    const method = id ? 'PUT' : 'POST';
+    try {
+      const r = await fetch(url, { method, body: fd, credentials: 'same-origin' });
+      const j = await r.json();
+      if (!j.success) {
+        msg.textContent = j.error || 'Błąd zapisu';
+        return;
+      }
+      const mh = getKontaktModal();
+      if (mh) mh.hide();
+      await load();
+    } catch (e) {
+      msg.textContent = 'Błąd sieci.';
+      console.error(e);
+    }
+  }
+
+  document.getElementById('kontaktSaveBtn').addEventListener('click', saveKontakt);
+
+  document.getElementById('kontaktLogo').addEventListener('change', function () {
+    clearLogoPreview();
+    const f = this.files && this.files[0];
+    if (f && f.type && f.type.indexOf('image/') === 0) {
+      logoPreviewObjectUrl = URL.createObjectURL(f);
+      showLogoPreview(logoPreviewObjectUrl);
+    }
+  });
+
+  document.getElementById('kontaktRemoveLogo').addEventListener('change', function () {
+    if (this.checked) {
+      clearLogoPreview();
+      document.getElementById('kontaktLogo').value = '';
+    }
+  });
+
+  function openDeleteModal(id) {
+    if (!id) return;
+    deleteContactId = id;
+    const md = getDeleteModal();
+    if (md) md.show();
+  }
+
+  document.getElementById('kontaktDeleteConfirmBtn').addEventListener('click', async () => {
+    const id = deleteContactId;
+    if (!id) return;
+    const md = getDeleteModal();
+    if (md) md.hide();
+    try {
+      const r = await fetch(`/api/kontakty/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const j = await r.json();
+      deleteContactId = null;
+      if (!j.success) {
+        alert(j.error || 'Nie udało się usunąć');
+        return;
+      }
+      await load();
+    } catch (e) {
+      deleteContactId = null;
+      alert('Błąd sieci');
+    }
+  });
+
+  if (searchInput) {
+    searchInput.addEventListener('input', applyKontaktyFilter);
+  }
+
+  if (grid) {
+    grid.addEventListener('click', (e) => {
+      let el = e.target;
+      if (el && el.nodeType !== 1) el = el.parentElement;
+      if (!el || typeof el.closest !== 'function') return;
+      const bEdit = el.closest('button.kontakt-btn-edit');
+      if (bEdit) {
+        e.preventDefault();
+        e.stopPropagation();
+        openEdit(bEdit.getAttribute('data-id'));
+        return;
+      }
+      const bDel = el.closest('button.kontakt-btn-del');
+      if (bDel) {
+        e.preventDefault();
+        e.stopPropagation();
+        openDeleteModal(bDel.getAttribute('data-id'));
+      }
+    });
+  }
+
+  load();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,707 @@
+{% extends "base_panel.html" %}
+{% block title %}Dostawy{% endblock %}
+
+{% block extra_css %}
+<style>
+  .dostawy-table {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .dostawy-table th {
+    position: sticky;
+    top: 0;
+    background: #f8f9fa;
+    z-index: 2;
+    border-bottom: 2px solid #dee2e6;
+    padding: 6px 8px;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #6c757d;
+  }
+  .dostawy-table td {
+    padding: 5px 8px;
+    vertical-align: middle;
+  }
+  .dostawy-table tbody tr:hover {
+    background: #e8f4fd;
+  }
+  .dostawy-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .dostawy-search {
+    max-width: 280px;
+    font-size: 12px;
+  }
+  .dostawy-meta {
+    font-size: 11px;
+    color: #6c757d;
+  }
+  .badge-status {
+    font-size: 10px;
+    padding: 3px 7px;
+    border-radius: 3px;
+    font-weight: 500;
+  }
+  .view-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    overflow: hidden;
+    font-size: 11px;
+  }
+  .view-switch button {
+    border: none;
+    background: #fff;
+    padding: 4px 12px;
+    cursor: pointer;
+    color: #6c757d;
+    font-weight: 500;
+    transition: all .15s;
+  }
+  .view-switch button.active {
+    background: var(--primary, #0f6cbd);
+    color: #fff;
+  }
+  .view-switch button:hover:not(.active) {
+    background: #f0f2f5;
+  }
+  .col-hidden { display: none !important; }
+  .group-header {
+    cursor: pointer;
+    user-select: none;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .group-header:hover {
+    filter: brightness(0.95);
+  }
+  .group-header td {
+    padding: 7px 10px !important;
+    border-bottom: 2px solid rgba(0,0,0,0.1);
+  }
+  .group-header .group-arrow {
+    display: inline-block;
+    transition: transform .2s;
+    margin-right: 6px;
+  }
+  .group-header.collapsed .group-arrow {
+    transform: rotate(-90deg);
+  }
+  .group-header .group-count {
+    font-weight: 400;
+    font-size: 11px;
+    opacity: 0.7;
+    margin-left: 8px;
+  }
+  .dostawy-table tr.gc-0 td { background: #e8f4fd !important; }
+  .dostawy-table tr.gc-0:hover td { background: #d0eafb !important; }
+  .dostawy-table tr.gc-1 td { background: #fef9e7 !important; }
+  .dostawy-table tr.gc-1:hover td { background: #fdf0c4 !important; }
+  .dostawy-table tr.gc-2 td { background: #eafaf1 !important; }
+  .dostawy-table tr.gc-2:hover td { background: #d5f5e3 !important; }
+  .dostawy-table tr.gc-3 td { background: #f5eef8 !important; }
+  .dostawy-table tr.gc-3:hover td { background: #ebdef0 !important; }
+  .dostawy-table tr.gc-4 td { background: #fdf2e9 !important; }
+  .dostawy-table tr.gc-4:hover td { background: #fae5d3 !important; }
+  .dostawy-table tr.gc-5 td { background: #f2f4f4 !important; }
+  .dostawy-table tr.gc-5:hover td { background: #e5e8e8 !important; }
+  .dostawy-table tr.gh-row td { font-weight: 600; border-bottom: 2px solid rgba(0,0,0,0.15); }
+  .dostawy-scroll-wrap {
+    overflow-x: scroll;
+    overflow-y: auto;
+    max-height: calc(100vh - 280px);
+  }
+  .dostawy-scroll-wrap::-webkit-scrollbar {
+    height: 12px;
+    width: 8px;
+  }
+  .dostawy-scroll-wrap::-webkit-scrollbar-track {
+    background: #f0f0f0;
+  }
+  .dostawy-scroll-wrap::-webkit-scrollbar-thumb {
+    background: #b0b0b0;
+    border-radius: 6px;
+  }
+  .dostawy-scroll-wrap::-webkit-scrollbar-thumb:hover {
+    background: #888;
+  }
+  .news-panel {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-top: 1px solid #e6e9ef;
+    font-size: 11px;
+    overflow-y: auto;
+    max-height: calc(100vh - 500px);
+  }
+  .news-panel-title {
+    font-weight: 600;
+    color: var(--primary, #0f6cbd);
+    font-size: 12px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .news-item {
+    padding: 6px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .news-item:last-child {
+    border-bottom: none;
+  }
+  .news-date {
+    font-size: 10px;
+    color: #999;
+    display: block;
+    margin-bottom: 2px;
+  }
+  .news-text {
+    color: #333;
+    line-height: 1.4;
+  }
+  body.mini .news-panel,
+  body.hidden .news-panel {
+    display: none;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h2 class="mb-0"><i class="bi bi-truck me-2"></i>Dostawy 2026</h2>
+  <div class="dostawy-meta">
+    <span id="lastUpdate">—</span>
+    <span class="text-muted ms-1" style="font-size:10px;">(auto co 10 min)</span>
+    <button id="btnRefresh" class="btn btn-sm btn-outline-primary ms-2" onclick="refreshData()">
+      <i class="bi bi-arrow-clockwise"></i> Odśwież
+    </button>
+    <button id="btnRestoreLastGood" class="btn btn-sm btn-outline-warning ms-2" onclick="restoreLastGood()">
+      <i class="bi bi-arrow-counterclockwise"></i> Przywróć ostatnią działającą wersję
+    </button>
+    <button id="btnDownloadCopy" class="btn btn-sm btn-outline-secondary ms-2" onclick="downloadExcelCopy()">
+      <i class="bi bi-download"></i> Pobierz kopię Excela
+    </button>
+  </div>
+</div>
+<div id="sourceWarning" class="alert alert-warning py-2 px-3 d-none" role="alert" style="font-size:12px;"></div>
+
+<div class="dostawy-toolbar">
+  <input type="text" id="searchInput" class="form-control form-control-sm dostawy-search" placeholder="Szukaj...">
+  <select id="filterSupplier" class="form-select form-select-sm" style="max-width:220px;font-size:12px;">
+    <option value="">Wszyscy dostawcy</option>
+  </select>
+  <select id="filterProduct" class="form-select form-select-sm" style="max-width:220px;font-size:12px;">
+    <option value="">Wszystkie produkty</option>
+  </select>
+  <div class="view-switch">
+    <button id="btnLight" class="active" onclick="setView('light')">Light</button>
+    <button id="btnMaster" onclick="setView('master')">Master</button>
+  </div>
+  <span class="dostawy-meta" id="rowCount"></span>
+</div>
+
+<div class="dostawy-scroll-wrap">
+  <table class="table table-sm table-bordered dostawy-table" id="dostawyTable">
+    <thead>
+      <tr>
+        <th data-col="nr">#</th>
+        <th data-col="dostawca">Dostawca</th>
+        <th data-col="nr_transportu">Nr transportu</th>
+        <th data-col="symbol">Symbol/Index</th>
+        <th data-col="ean">EAN</th>
+        <th data-col="opis">Opis</th>
+        <th data-col="ilosc">Ilość</th>
+        <th data-col="ilosc_palet">Ilość palet</th>
+        <th data-col="planowana_dostawa">Planowana dostawa</th>
+        <th data-col="nr_proformy">Nr proformy</th>
+        <th data-col="nr_faktury">Nr faktury</th>
+        <th data-col="dostarczono">Dostarczono</th>
+        <th data-col="status">Status</th>
+      </tr>
+    </thead>
+    <tbody id="dostawyBody"></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allRows = [];
+let currentView = 'light';
+const lightCols = new Set(['nr', 'opis', 'ilosc', 'planowana_dostawa']);
+const collapsedGroups = new Set();
+
+function setView(mode) {
+  currentView = mode;
+  document.getElementById('btnLight').classList.toggle('active', mode === 'light');
+  document.getElementById('btnMaster').classList.toggle('active', mode === 'master');
+  applyColumnVisibility();
+}
+
+function applyColumnVisibility() {
+  document.querySelectorAll('#dostawyTable [data-col]').forEach(el => {
+    const col = el.dataset.col;
+    if (currentView === 'light') {
+      el.classList.toggle('col-hidden', !lightCols.has(col));
+    } else {
+      el.classList.remove('col-hidden');
+    }
+  });
+}
+
+const GROUP_COLORS = 6;
+
+function toggleGroup(dateKey) {
+  if (collapsedGroups.has(dateKey)) collapsedGroups.delete(dateKey);
+  else collapsedGroups.add(dateKey);
+  document.querySelectorAll(`tr[data-group="${dateKey}"]`).forEach(tr => {
+    tr.style.display = collapsedGroups.has(dateKey) ? 'none' : '';
+  });
+  const gh = document.querySelector(`tr.group-header[data-date="${dateKey}"]`);
+  if (gh) gh.classList.toggle('collapsed', collapsedGroups.has(dateKey));
+}
+
+function initNewsPanel() {
+  const nav = document.getElementById('nav-tiles');
+  if (!nav || document.getElementById('newsPanel')) return;
+  const div = document.createElement('div');
+  div.id = 'newsPanel';
+  div.className = 'news-panel';
+  div.innerHTML = ''
+    + '<div class="news-panel-title"><i class="bi bi-megaphone"></i> Aktualności</div>'
+    + '<div id="newsItems"><span class="text-muted">Ładowanie...</span></div>'
+    + '<div class="news-panel-title" style="margin-top:10px;"><i class="bi bi-truck"></i> Dostawy</div>'
+    + '<div id="deliveriesInfo"><span class="text-muted">Brak danych</span></div>';
+  nav.parentElement.appendChild(div);
+}
+
+function renderNews(news) {
+  const container = document.getElementById('newsItems');
+  if (!container) return;
+  if (!news || !news.length) {
+    container.innerHTML = '<span class="text-muted">Brak aktualności</span>';
+    return;
+  }
+  container.innerHTML = news.map(n => `<div class="news-item">
+    <span class="news-date">${esc(n.date)}</span>
+    <span class="news-text">${esc(n.text)}</span>
+  </div>`).join('');
+}
+
+function applyData(data) {
+  allRows = data.rows || [];
+  document.getElementById('lastUpdate').textContent =
+    'Ostatnia aktualizacja: ' + (data.last_update || '—');
+  populateFilters();
+  render();
+  initNewsPanel();
+  renderNews(data.news || []);
+  renderDeliveriesInfo();
+  renderSourceWarning(data.warning || null);
+}
+
+function renderSourceWarning(warning) {
+  const box = document.getElementById('sourceWarning');
+  if (!box) return;
+  if (warning && warning.active) {
+    box.classList.remove('d-none');
+    box.innerHTML = `<strong>Uwaga:</strong> ${esc(warning.message || 'Wykryto anomalię danych.')}`;
+  } else {
+    box.classList.add('d-none');
+    box.textContent = '';
+  }
+}
+
+function renderDeliveriesInfo() {
+  const container = document.getElementById('deliveriesInfo');
+  if (!container) return;
+
+  // Grupujemy zrealizowane dostawy po dacie i wyciągamy "inteligentną" nazwę
+  const deliveredByDate = new Map();
+  for (const r of allRows) {
+    const status = String(r.status || '').toLowerCase();
+    if (!status.includes('dostarczon')) continue;
+    const d = r.planowana_dostawa || r.dostarczono;
+    if (!d) continue;
+    const key = String(d);
+    if (!deliveredByDate.has(key)) deliveredByDate.set(key, []);
+    deliveredByDate.get(key).push(r);
+  }
+
+  const deliveredDates = Array.from(deliveredByDate.keys()).sort();
+  if (!deliveredDates.length) {
+    container.innerHTML = '<span class="text-muted">Brak zrealizowanych dostaw</span>';
+    return;
+  }
+
+  container.innerHTML = deliveredDates.map(d => {
+    const rows = deliveredByDate.get(d) || [];
+    const brands = rows.map(r => extractBrand(r.opis));
+    const types = rows.map(r => extractProductType(r.opis));
+    let mainBrand = mostFrequent(brands);
+    let mainType = mostFrequent(types);
+
+    // Domyślne przypisania typu po marce
+    if (mainBrand === 'Nordvic' && (!mainType || mainType === 'Inne')) mainType = 'Pergole';
+    if (mainBrand === 'Mirador' && (!mainType || mainType === 'Inne')) mainType = 'Pergole';
+    if (mainBrand === 'Nordeck' && (!mainType || mainType === 'Inne')) mainType = 'Sztachety / Deski';
+
+    let label = '';
+    if (mainBrand && mainType) label = `${esc(mainBrand)} - ${esc(mainType)}`;
+    else if (mainBrand) label = esc(mainBrand);
+    else if (mainType) label = esc(mainType);
+
+    const datePart = `Dostawa ${esc(d)} - zrealizowana`;
+    const text = label ? `${label} — ${datePart}` : datePart;
+
+    return `<div class="news-item"><span class="news-text">${text}</span></div>`;
+  }).join('');
+}
+
+async function loadData() {
+  try {
+    const r = await fetch('/api/dostawy');
+    if (!r.ok) throw new Error('Błąd pobierania');
+    applyData(await r.json());
+  } catch (e) {
+    document.getElementById('dostawyBody').innerHTML =
+      '<tr><td colspan="99" class="text-center text-danger">Błąd ładowania danych</td></tr>';
+  }
+}
+
+function extractProductType(opis) {
+  if (!opis) return '';
+  const lc = opis.toLowerCase();
+  if (lc.includes('sztachet')) return 'Sztachety';
+  if (lc.includes('pergola')) return 'Pergole';
+  if (lc.includes('rolet')) return 'Rolety';
+  if (lc.includes('panel')) return 'Panele';
+  if (lc.includes('legar')) return 'Legary';
+  if (lc.includes('listwa') || lc.includes('maskuj')) return 'Listwy';
+  if (lc.includes('wspornik')) return 'Wsporniki';
+  if (lc.includes('screen')) return 'Screen';
+  if (lc.includes('louver') || lc.includes('wall')) return 'Louver Wall';
+  if (lc.includes('solid')) return 'Solid';
+  if (lc.includes('domek')) return 'Domki';
+  if (lc.includes('deska') || lc.includes('dubline') || lc.includes('skogline') || lc.includes('vintage')) return 'Deski';
+  return 'Inne';
+}
+
+function extractBrand(opis) {
+  if (!opis) return '';
+  const lc = opis.toLowerCase();
+  if (lc.includes('nordvic')) return 'Nordvic';
+  if (lc.includes('nordeck')) return 'Nordeck';
+  // Dla linii 80 Solid traktujemy jako Mirador
+  if (lc.includes('mirador') || lc.includes('80 solid')) return 'Mirador';
+  // Domyślnie bierzemy pierwsze słowo z opisu (często marka)
+  const first = opis.trim().split(/\s+/)[0];
+  return first || '';
+}
+
+function mostFrequent(arr) {
+  const cnt = new Map();
+  for (const v of arr) {
+    if (!v) continue;
+    cnt.set(v, (cnt.get(v) || 0) + 1);
+  }
+  let best = '';
+  let bestN = 0;
+  for (const [v, n] of cnt.entries()) {
+    if (n > bestN) { best = v; bestN = n; }
+  }
+  return best;
+}
+
+function populateFilters() {
+  const selS = document.getElementById('filterSupplier');
+  const suppliers = [...new Set(allRows.map(r => r.dostawca).filter(Boolean))].sort();
+  selS.innerHTML = '<option value="">Wszyscy dostawcy</option>' +
+    suppliers.map(s => `<option value="${s}">${s}</option>`).join('');
+
+  const selP = document.getElementById('filterProduct');
+  const types = [...new Set(allRows.map(r => extractProductType(r.opis)).filter(Boolean))].sort();
+  selP.innerHTML = '<option value="">Wszystkie produkty</option>' +
+    types.map(t => `<option value="${t}">${t}</option>`).join('');
+}
+
+function render() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const sup = document.getElementById('filterSupplier').value;
+  const prod = document.getElementById('filterProduct').value;
+  let rows = allRows.filter(r => r.dostawca || r.opis);
+  if (sup) rows = rows.filter(r => r.dostawca === sup);
+  if (prod) rows = rows.filter(r => extractProductType(r.opis) === prod);
+  if (q) rows = rows.filter(r =>
+    Object.values(r).some(v => v && String(v).toLowerCase().includes(q))
+  );
+
+  rows.forEach(r => {
+    if (r.planowana_dostawa && r.planowana_dostawa.startsWith('1900'))
+      r.planowana_dostawa = 'termin ustalany';
+  });
+
+  rows.sort((a, b) => {
+    const da = a.planowana_dostawa === 'termin ustalany' ? '9998' : (a.planowana_dostawa || '9999');
+    const db = b.planowana_dostawa === 'termin ustalany' ? '9998' : (b.planowana_dostawa || '9999');
+    return da.localeCompare(db);
+  });
+
+  const groups = new Map();
+  rows.forEach(r => {
+    const key = r.planowana_dostawa || '(brak daty)';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  });
+
+  const tbody = document.getElementById('dostawyBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="99" class="text-center text-muted">Brak danych</td></tr>';
+    document.getElementById('rowCount').textContent = '0 pozycji';
+    return;
+  }
+
+  let html = '';
+  let idx = 0;
+  let colorIdx = 0;
+  const colCount = 13;
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  function isGroupDelivered(groupRows) {
+    return groupRows.length > 0 && groupRows.every(r => String(r.status || '').toLowerCase().includes('dostarczon'));
+  }
+
+  const entries = Array.from(groups.entries());
+  const upcoming = entries.filter(([_, gr]) => !isGroupDelivered(gr));
+  const delivered = entries.filter(([_, gr]) => isGroupDelivered(gr));
+
+  // Najpierw dostawy nadchodzące / planowane
+  for (const [dateKey, groupRows] of upcoming) {
+    const ci = colorIdx % GROUP_COLORS;
+    const isCollapsed = collapsedGroups.has(dateKey);
+    let extraInfo = '';
+
+    const brands = groupRows.map(r => extractBrand(r.opis));
+    const types = groupRows.map(r => extractProductType(r.opis));
+    let mainBrand = mostFrequent(brands);
+    let mainType = mostFrequent(types);
+
+    // Domyślne przypisania typu po marce
+    if (mainBrand === 'Nordvic' && (!mainType || mainType === 'Inne')) mainType = 'Pergole';
+    if (mainBrand === 'Mirador' && (!mainType || mainType === 'Inne')) mainType = 'Pergole';
+    if (mainBrand === 'Nordeck' && (!mainType || mainType === 'Inne')) mainType = 'Sztachety / Deski';
+
+    let groupLabel = '';
+    if (mainBrand && mainType) groupLabel = `${mainBrand} - ${mainType}`;
+    else if (mainBrand) groupLabel = mainBrand;
+    else if (mainType) groupLabel = mainType;
+
+    const headerMain = groupLabel
+      ? `${esc(groupLabel)} — ${esc(dateKey)}`
+      : esc(dateKey);
+
+    if (dateKey && dateKey !== '(brak daty)' && dateKey !== 'termin ustalany') {
+      const d = new Date(String(dateKey).trim() + 'T00:00:00');
+      if (!isNaN(d)) {
+        const diff = Math.round((d - today) / 86400000);
+        if (diff > 1) extraInfo = ` <span class="text-muted" style="font-size:11px;">(pozostało: ${diff} dni)</span>`;
+        else if (diff === 1) extraInfo = ` <span class="text-muted" style="font-size:11px;">(pozostało: 1 dzień)</span>`;
+        else if (diff === 0) extraInfo = ` <span class="text-muted" style="font-size:11px;">(dzisiaj)</span>`;
+        else if (diff < 0) extraInfo = ` <span class="text-muted" style="font-size:11px;">(po terminie: ${Math.abs(diff)} dni)</span>`;
+      }
+    }
+
+    html += `<tr class="group-header gh-row gc-${ci} ${isCollapsed ? 'collapsed' : ''}" data-date="${esc(dateKey)}" onclick="toggleGroup('${esc(dateKey)}')">
+      <td colspan="${colCount}">
+        <span class="group-arrow">▼</span>
+        <i class="bi bi-truck me-1"></i>
+        ${headerMain}${extraInfo}
+        <span class="group-count">(${groupRows.length} poz.)</span>
+      </td>
+    </tr>`;
+
+    for (const r of groupRows) {
+      idx++;
+      const display = isCollapsed ? 'style="display:none"' : '';
+      html += `<tr class="gc-${ci}" data-group="${esc(dateKey)}" ${display}>
+        <td data-col="nr">${idx}</td>
+        <td data-col="dostawca">${esc(r.dostawca)}</td>
+        <td data-col="nr_transportu">${esc(r.nr_transportu)}</td>
+        <td data-col="symbol"><code>${esc(r.symbol)}</code></td>
+        <td data-col="ean">${esc(r.ean)}</td>
+        <td data-col="opis">${esc(r.opis)}</td>
+        <td data-col="ilosc" class="text-end">${r.ilosc ?? ''}</td>
+        <td data-col="ilosc_palet" class="text-end">${r.ilosc_palet ?? ''}</td>
+        <td data-col="planowana_dostawa">${esc(r.planowana_dostawa)}</td>
+        <td data-col="nr_proformy">${esc(r.nr_proformy)}</td>
+        <td data-col="nr_faktury">${esc(r.nr_faktury)}</td>
+        <td data-col="dostarczono">${esc(r.dostarczono)}</td>
+        <td data-col="status">${statusBadge(r.status)}</td>
+      </tr>`;
+    }
+    colorIdx++;
+  }
+
+  // Separator dla dostaw już zrealizowanych
+  if (delivered.length) {
+    html += `<tr class="table-secondary">
+      <td colspan="${colCount}" style="text-align:center;font-weight:600;">Dostawy dostarczone</td>
+    </tr>`;
+  }
+
+  // Następnie grupy dostarczone – domyślnie zwinięte
+  for (const [dateKey, groupRows] of delivered) {
+    const ci = colorIdx % GROUP_COLORS;
+    const deliveredGroup = true;
+    if (!collapsedGroups.has(dateKey)) collapsedGroups.add(dateKey);
+    const isCollapsed = true;
+
+    const brands = groupRows.map(r => extractBrand(r.opis));
+    const types = groupRows.map(r => extractProductType(r.opis));
+    let mainBrand = mostFrequent(brands);
+    let mainType = mostFrequent(types);
+
+    // Domyślne przypisania typu po marce
+    if (mainBrand === 'Nordvic' && (!mainType || mainType === 'Inne')) mainType = 'Pergole';
+    if (mainBrand === 'Mirador' && (!mainType || mainType === 'Inne')) mainType = 'Pergole';
+    if (mainBrand === 'Nordeck' && (!mainType || mainType === 'Inne')) mainType = 'Sztachety / Deski';
+
+    let groupLabel = '';
+    if (mainBrand && mainType) groupLabel = `${mainBrand} - ${mainType}`;
+    else if (mainBrand) groupLabel = mainBrand;
+    else if (mainType) groupLabel = mainType;
+
+    const headerLabel = groupLabel
+      ? `${esc(groupLabel)} — dostarczono`
+      : 'dostarczono';
+    const extraInfo = '';
+
+    html += `<tr class="group-header gh-row gc-${ci} collapsed" data-date="${esc(dateKey)}" onclick="toggleGroup('${esc(dateKey)}')">
+      <td colspan="${colCount}">
+        <span class="group-arrow">▼</span>
+        <i class="bi bi-truck me-1"></i>
+        ${headerLabel}
+        <span class="group-count">(${groupRows.length} poz.)</span>
+      </td>
+    </tr>`;
+
+    for (const r of groupRows) {
+      idx++;
+      const display = 'style="display:none"';
+      html += `<tr class="gc-${ci}" data-group="${esc(dateKey)}" ${display}>
+        <td data-col="nr">${idx}</td>
+        <td data-col="dostawca">${esc(r.dostawca)}</td>
+        <td data-col="nr_transportu">${esc(r.nr_transportu)}</td>
+        <td data-col="symbol"><code>${esc(r.symbol)}</code></td>
+        <td data-col="ean">${esc(r.ean)}</td>
+        <td data-col="opis">${esc(r.opis)}</td>
+        <td data-col="ilosc" class="text-end">${r.ilosc ?? ''}</td>
+        <td data-col="ilosc_palet" class="text-end">${r.ilosc_palet ?? ''}</td>
+        <td data-col="planowana_dostawa">${esc(r.planowana_dostawa)}</td>
+        <td data-col="nr_proformy">${esc(r.nr_proformy)}</td>
+        <td data-col="nr_faktury">${esc(r.nr_faktury)}</td>
+        <td data-col="dostarczono">${esc(r.dostarczono)}</td>
+        <td data-col="status">${statusBadge(r.status)}</td>
+      </tr>`;
+    }
+    colorIdx++;
+  }
+
+  tbody.innerHTML = html;
+  document.getElementById('rowCount').textContent = rows.length + ' pozycji · ' + groups.size + ' dostaw';
+  applyColumnVisibility();
+}
+
+function statusBadge(s) {
+  if (!s) return '';
+  const lc = s.toLowerCase();
+  let cls = 'bg-secondary text-white';
+  if (lc.includes('zamówion') || lc.includes('order')) cls = 'bg-info text-white';
+  if (lc.includes('w drodze') || lc.includes('transit')) cls = 'bg-warning text-dark';
+  if (lc.includes('dostarczon') || lc.includes('deliver')) cls = 'bg-success text-white';
+  return `<span class="badge badge-status ${cls}">${esc(s)}</span>`;
+}
+
+function esc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;');
+}
+
+async function refreshData() {
+  const btn = document.getElementById('btnRefresh');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Pobieram...';
+  try {
+    const r = await fetch('/api/dostawy/refresh', { method: 'POST' });
+    if (!r.ok) {
+      if (r.status === 401 || r.status === 302) {
+        alert('Sesja wygasła – zaloguj się ponownie.');
+      } else {
+        alert('Błąd odświeżania (HTTP ' + r.status + ').');
+      }
+      return;
+    }
+    const data = await r.json();
+    if (data && !data.error) {
+      applyData(data);
+      alert('Dane dostaw zostały zaktualizowane.');
+    } else {
+      alert('Błąd odświeżania: ' + (data && data.error ? data.error : 'nieznany błąd'));
+    }
+  } catch (e) {
+    alert('Błąd odświeżania: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Odśwież';
+  }
+}
+
+async function restoreLastGood() {
+  const ok = window.confirm('Przywrócić ostatnią działającą wersję pliku danych?');
+  if (!ok) return;
+  const btn = document.getElementById('btnRestoreLastGood');
+  const old = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Przywracam...';
+  try {
+    const r = await fetch('/api/dostawy/restore-last-good', { method: 'POST' });
+    const payload = await r.json();
+    if (!r.ok || !payload.success) {
+      alert('Nie udało się przywrócić: ' + (payload.error || ('HTTP ' + r.status)));
+      return;
+    }
+    applyData(payload.data || {});
+    alert(payload.message || 'Przywrócono ostatnią działającą wersję.');
+  } catch (e) {
+    alert('Błąd przywracania: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = old;
+  }
+}
+
+function downloadExcelCopy() {
+  window.location.href = '/api/dostawy/source-file';
+}
+
+document.getElementById('searchInput').addEventListener('input', render);
+document.getElementById('filterSupplier').addEventListener('change', render);
+document.getElementById('filterProduct').addEventListener('change', render);
+loadData();
+
+const AUTO_REFRESH_MS = 10 * 60 * 1000;
+setInterval(async () => {
+  try {
+    const r = await fetch('/api/dostawy/refresh', { method: 'POST' });
+    if (r.ok) applyData(await r.json());
+  } catch (e) { /* silent */ }
+}, AUTO_REFRESH_MS);
+</script>
+{% endblock %}

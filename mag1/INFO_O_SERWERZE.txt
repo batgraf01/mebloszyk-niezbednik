@@ -1,0 +1,91 @@
+═══════════════════════════════════════════════════════════════
+  JAK SPRAWDZIĆ CO MASZ NA SERWERZE I POMÓC MI W ANALIZIE
+═══════════════════════════════════════════════════════════════
+
+❌ NIE MOGĘ BEZPOŚREDNIO POŁĄCZYĆ SIĘ Z TWOIM SERWEREM
+
+Ale mogę Ci pomóc przeanalizować informacje, które mi wyślesz!
+
+═══════════════════════════════════════════════════════════════
+
+📋 CO MOŻESZ ZROBIĆ:
+
+1. SPRAWDŹ PRZEZ FTP:
+   
+   a) Zaloguj się przez klienta FTP (FileZilla, WinSCP, Total Commander)
+   
+   b) Zrób listę lub screenshot:
+      - Jakie pliki są w głównym katalogu?
+      - Czy jest folder public_html, www?
+      - Czy są pliki .py (Python)?
+      - Czy jest folder cgi-bin?
+      - Czy są jakieś pliki .htaccess?
+   
+   c) WYŚLIJ MI:
+      - Listę plików (możesz skopiować z klienta FTP)
+      - Lub screenshot widoku FTP
+
+2. SPRAWDŹ PANEL HOSTINGU AFTERMARKET:
+   
+   a) Zaloguj się do panelu zarządzania
+   
+   b) Poszukaj tych sekcji:
+      ✗ "Python" lub "Python Apps"
+      ✗ "Aplikacje" lub "Applications"  
+      ✗ "Web Applications"
+      ✗ "Funkcje" lub "Features"
+      ✗ "Wersje oprogramowania" lub "Software Versions"
+   
+   c) WYŚLIJ MI:
+      - Screenshoty z panelu
+      - Opis planu hostingu
+      - Listę dostępnych funkcji
+
+3. CO SPRAWDZIĆ W PANELU:
+   
+   ✓ Czy Python jest dostępny?
+   ✓ Czy Flask jest zainstalowany?
+   ✓ Jakie wersje Python są dostępne?
+   ✓ Czy mogę instalować pakiety (pip)?
+   ✓ Czy jest dostęp SSH/Terminal?
+   ✓ Jakie aplikacje można uruchamiać?
+
+═══════════════════════════════════════════════════════════════
+
+💬 CO MI WYŚLIJ:
+
+Możesz mi wysłać:
+1. Listę plików z FTP (tekst lub screenshot)
+2. Screenshoty z panelu hostingu
+3. Opis planu hostingu Aftermarket
+4. Informacje o dostępnych funkcjach
+
+NA PODSTAWIE TEGO POMOGĘ CI:
+- Sprawdzić, czy Flask będzie działać
+- Przygotować odpowiednią konfigurację
+- Znaleźć alternatywne rozwiązania
+
+═══════════════════════════════════════════════════════════════
+
+🔧 MOŻLIWE SCENARIUSZE:
+
+1. SERWER OBSŁUGUJE PYTHON/FLASK:
+   ✓ Wtedy wgrywasz pliki i konfigurujesz
+
+2. SERWER NIE OBSŁUGUJE PYTHON/FLASK:
+   ✗ Możemy zrobić wersję statyczną (bez logowania)
+   ✗ Lub trzeba zmienić hosting
+
+3. SERWER MA OGRANICZENIA:
+   ⚠️ Sprawdzimy co można zrobić
+
+═══════════════════════════════════════════════════════════════
+
+📞 KONTAKT Z HOSTINGIEM:
+
+Możesz też zapytać hosting Aftermarket:
+"Czy mój plan obsługuje Python i Flask aplikacje?"
+"Czy mogę uruchomić aplikację Flask na serwerze?"
+
+═══════════════════════════════════════════════════════════════
+

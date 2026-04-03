@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | Panel reklamacji{% endblock %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item active">Dashboard</li>
+{% endblock %}
+
+{% block content %}
+<section class="dashboard">
+    <div class="dashboard-grid">
+        <section class="main-panel">
+            <div class="stat-grid">
+                <article class="panel stat-card">
+                    <div class="stat-icon blue"><i class="bi bi-graph-up-arrow"></i></div>
+                    <div>
+                        <p class="stat-label">Reklamacje globalnie</p>
+                        <p class="stat-value">{{ stats.global }}</p>
+                        <small style="display:block;color:var(--text-muted);font-size:0.8rem;">od początku działania</small>
+                    </div>
+                </article>
+                <article class="panel stat-card">
+                    <div class="stat-icon green"><i class="bi bi-calendar2-week"></i></div>
+                    <div>
+                        <p class="stat-label">W tym miesiącu</p>
+                        <p class="stat-value">{{ stats.month }}</p>
+                        <small style="display:block;color:var(--text-muted);font-size:0.8rem;">+3 vs poprzedni miesiąc</small>
+                    </div>
+                </article>
+                <article class="panel stat-card">
+                    <div class="stat-icon yellow"><i class="bi bi-clock-history"></i></div>
+                    <div>
+                        <p class="stat-label">Poprzedni miesiąc</p>
+                        <p class="stat-value">{{ stats.prev_month }}</p>
+                        <small style="display:block;color:var(--text-muted);font-size:0.8rem;">stabilny poziom</small>
+                    </div>
+                </article>
+                <article class="panel stat-card">
+                    <div class="stat-icon magenta"><i class="bi bi-exclamation-triangle"></i></div>
+                    <div>
+                        <p class="stat-label">Rozkompletowane produkty</p>
+                        <p class="stat-value">{{ stats.incomplete_total }}</p>
+                        <small style="display:block;color:var(--text-muted);font-size:0.8rem;">wszystkie kategorie</small>
+                    </div>
+                </article>
+            </div>
+
+            <article class="panel chart-card">
+                <header>
+                    <div>
+                        <strong>Reklamacje miesięcznie</strong>
+                        <p style="margin:0;color:var(--text-muted);">Wszystkie / pergole / domki</p>
+                    </div>
+                    <div class="chart-filters">
+                        <button class="chip">Wszystkie</button>
+                        <button class="chip">Pergole</button>
+                        <button class="chip">Domki</button>
+                    </div>
+                </header>
+                <div class="chart-placeholder">
+                    symulowany wykres (docelowo Chart.js)
+                </div>
+                <div class="chart-summary">
+                    <div class="chip">
+                        <span>Wszystkie</span>
+                        <span>{{ stats.month }}</span>
+                    </div>
+                    <div class="chip">
+                        <span>Pergole</span>
+                        <span>{{ stats.incomplete_pergola }}</span>
+                    </div>
+                    <div class="chip">
+                        <span>Domki</span>
+                        <span>{{ stats.incomplete_houses }}</span>
+                    </div>
+                </div>
+            </article>
+
+            <article class="panel table-card">
+                <header>
+                    <div>
+                        <strong>Rozkompletowane produkty</strong>
+                        <p style="margin:0;color:var(--text-muted);font-size:0.85rem;">Podgląd kartonów i brakujących elementów</p>
+                    </div>
+                    <input class="search-field" placeholder="Szukaj elementu, np. BOL">
+                </header>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Typ</th>
+                            <th>Produkt</th>
+                            <th>Kartony / Braki</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for product in incomplete_products %}
+                            <tr>
+                                <td>
+                                    <span class="type-badge type-{{ 'thor' if product.type == 'T' else
+                                                                  'magni' if product.type == 'M' else
+                                                                  'pergola' if product.type == 'P' else
+                                                                  'zaluzja' if product.type == 'Ż' else
+                                                                  'roleta' }}">
+                                        {{ product.type }}
+                                    </span>
+                                </td>
+                                <td>{{ product.product }}</td>
+                                <td>
+                                    {% for carton in product.cartons %}
+                                        <strong>{{ carton.label }}</strong> – {{ carton.missing or '-' }}{% if not loop.last %}, {% endif %}
+                                    {% endfor %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+        </section>
+    </div>
+</section>
+{% endblock %}
+
