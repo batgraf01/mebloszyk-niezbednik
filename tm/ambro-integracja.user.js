@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ambro-integracja
 // @namespace    mebloszyk-ambro
-// @version      0.3.8
+// @version      0.3.15
 // @description  SellRocket -> Ambro: przycisk "Ambro" + przeniesienie danych; Ambro: autowypełnienie odbiorcy + ustawienia (Polska, ubezp. 7000, uwagi) + modal do dodawania wielu produktów do paczek.
 // @match        https://enterprise.sellrocket.pl/*
 // @match        https://*.enterprise.sellrocket.pl/*
@@ -368,6 +368,12 @@
       { dims: [2.37, 0.34, 0.27], weight: 37 },
       { dims: [2.37, 0.27, 0.19], weight: 16 },
     ],
+    "Pergola Sola 3×4 (4 kartony)": [
+      { dims: [2.95, 0.2, 0.14], weight: 54 },
+      { dims: [2.95, 0.2, 0.15], weight: 54 },
+      { dims: [2.68, 0.25, 0.2], weight: 41 },
+      { dims: [3.9, 0.3, 0.15], weight: 59 },
+    ],
     "SKY Skyline 3×3 przyścienna (4 kartony)": [
       { dims: [2.82, 0.24, 0.125], weight: 14 },
       { dims: [2.97, 0.29, 0.15], weight: 34 },
@@ -514,6 +520,9 @@
   let isRunning = false;
   let domObserver = null;
   const PACZKI_POLL_MS = 90;
+  // Nadpisania paczek dla bieżącego wyboru w modalu (nie zapisujemy na stałe).
+  // Klucz: productName, wartość: cartons[]
+  const selectionOverrides = Object.create(null);
 
   function formatCm(valueInMeters) {
     return String(Math.round(Number(valueInMeters) * 100));
@@ -553,6 +562,7 @@
     "Skyline - rolety i żaluzje",
     "Mirador - pergole",
     "Mirador - rolety i żaluzje",
+    "Sola - pergole",
     "Thor",
     "Magni",
     "Vidar",
@@ -567,6 +577,7 @@
     const isRoletaOrZaluzja = n.includes("roleta") || n.includes("żaluz") || n.includes("zaluz");
     const isMeble = n.includes("ławka") || n.includes("lawka") || n.includes("volterra") || n.includes("cortona") || n.includes("lounge");
 
+    if (n.includes("sola")) return "Sola - pergole";
     if (n.includes("skyline")) {
       return isRoletaOrZaluzja ? "Skyline - rolety i żaluzje" : "Skyline - pergole";
     }
@@ -604,10 +615,17 @@
     return out;
   }
 
+  function getCartonsForSelection(productMap, productName) {
+    const override = selectionOverrides[productName];
+    if (Array.isArray(override) && override.length) return override;
+    return productMap[productName];
+  }
+
   function getProductThemeClass(name) {
     const n = String(name).toLowerCase();
     if (n.includes("skyline")) return "tm-theme-skyline";
     if (n.includes("mirador")) return "tm-theme-mirador";
+    if (n.includes("sola")) return "tm-theme-sola";
     return "";
   }
 
@@ -742,7 +760,7 @@
       const qty = Number(quantity);
       if (!qty || qty <= 0) return;
 
-      const cartons = productMap[productName];
+      const cartons = getCartonsForSelection(productMap, productName);
       if (!Array.isArray(cartons) || cartons.length === 0) return;
 
       for (let productIndex = 1; productIndex <= qty; productIndex++) {
@@ -775,6 +793,8 @@
     document.querySelectorAll(".tm-ambro-product-qty").forEach((input) => {
       input.value = "0";
     });
+    // Reset nadpisań tylko dla bieżącego wyboru.
+    Object.keys(selectionOverrides).forEach((k) => delete selectionOverrides[k]);
     updateSummary();
   }
 
@@ -891,6 +911,7 @@
 
       .tm-ambro-item.tm-theme-skyline { background: #f3f8ff; border-color: #dbeafe; }
       .tm-ambro-item.tm-theme-mirador { background: #fff5f5; border-color: #fecaca; }
+      .tm-ambro-item.tm-theme-sola { background: #f0fdf4; border-color: #bbf7d0; }
 
       .tm-ambro-row {
         display: grid;
@@ -1082,6 +1103,62 @@
       .tm-ambro-custom-item-name { font-size: 12px; font-weight: 600; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .tm-ambro-custom-item-meta { font-size: 11px; color: #667085; }
 
+      .tm-ambro-row-actions { display:flex; gap:6px; justify-content:flex-end; align-items:center; flex-wrap: wrap; }
+      .tm-ambro-action-btn {
+        border: 1px solid #d0d5dd;
+        background: #fff;
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+        color: #111827;
+      }
+      .tm-ambro-action-btn:hover { background: #f8fafc; }
+      .tm-ambro-action-btn-danger { border-color: #fecdca; background: #fff5f5; }
+      .tm-ambro-inline-editor {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px dashed #d0d5dd;
+        display: none;
+      }
+      .tm-ambro-inline-editor.is-open { display: block; }
+      .tm-ambro-inline-meta { font-size: 11px; color: #667085; margin-bottom: 8px; }
+
+      .tm-ambro-name-line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .tm-ambro-name-line .tm-ambro-name {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+      .tm-ambro-name-actions {
+        display: inline-flex;
+        gap: 6px;
+        flex: 0 0 auto;
+        margin-left: auto;
+      }
+      .tm-ambro-icon-btn {
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        border: 1px solid #d0d5dd;
+        background: #fff;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        line-height: 1;
+        color: #111827;
+        padding: 0;
+      }
+      .tm-ambro-icon-btn:hover { background: #f8fafc; }
+      .tm-ambro-icon-btn-danger { border-color: #fecdca; background: #fff5f5; }
+      .tm-ambro-icon-btn-danger:hover { background: #ffe4e6; }
+
       @media (max-width: 900px) {
         .tm-ambro-row {
           grid-template-columns: minmax(0, 1fr) auto;
@@ -1133,12 +1210,18 @@
               .map(([name, cartons], idx) => {
                 const detailsId = `tm-ambro-details-${safeIdToken(name)}-${safeIdToken(groupName)}-${idx}`;
                 return `
-                  <div class="tm-ambro-item ${getProductThemeClass(name)}" data-product-row data-product-name="${escapeHtml(name.toLowerCase())}">
+                  <div class="tm-ambro-item ${getProductThemeClass(name)}" data-product-row data-product-name="${escapeHtml(name.toLowerCase())}" data-product="${escapeHtml(name)}" data-details-id="${detailsId}">
                     <div class="tm-ambro-row">
                       <div>
-                        <div class="tm-ambro-name">${escapeHtml(cleanProductTitle(name))}</div>
+                        <div class="tm-ambro-name-line">
+                          <div class="tm-ambro-name">${escapeHtml(cleanProductTitle(name))}</div>
+                          <div class="tm-ambro-name-actions">
+                            <button type="button" class="tm-ambro-icon-btn" data-inline-edit aria-label="Edytuj paczki" title="Edytuj paczki">✎</button>
+                            <button type="button" class="tm-ambro-icon-btn tm-ambro-icon-btn-danger" data-inline-remove aria-label="Usuń z wyboru" title="Usuń z wyboru">🗑</button>
+                          </div>
+                        </div>
                       </div>
-                      <div class="tm-ambro-col-meta">${cartons.length} kart.</div>
+                      <div class="tm-ambro-col-meta"><span data-cartons-count>${cartons.length}</span> kart.</div>
                       <div style="display:flex;justify-content:flex-end;align-items:center;">
                         <div class="tm-ambro-qty-control">
                           <button type="button" class="tm-qty-btn" data-delta="-1" data-product="${escapeHtml(name)}" aria-label="Zmniejsz ilość">−</button>
@@ -1146,9 +1229,20 @@
                           <button type="button" class="tm-qty-btn" data-delta="1" data-product="${escapeHtml(name)}" aria-label="Zwiększ ilość">+</button>
                         </div>
                       </div>
-                      <div style="display:flex;justify-content:flex-end;align-items:center;">
+                      <div class="tm-ambro-row-actions">
                         <button type="button" class="tm-ambro-details-toggle" data-target="${detailsId}" aria-expanded="false">Szczegóły ▾</button>
                       </div>
+                    </div>
+                    <div class="tm-ambro-inline-editor" data-inline-editor>
+                      <div class="tm-ambro-inline-meta">Edycja dotyczy tylko bieżącego wyboru w modalu (nie zapisuje się na stałe).</div>
+                      <div data-inline-cartons-wrap></div>
+                      <div class="tm-ambro-custom-actions" style="margin-top:6px;">
+                        <button type="button" class="tm-ambro-mini-btn" data-inline-add-carton>+ Dodaj karton</button>
+                        <button type="button" class="tm-ambro-mini-btn tm-ambro-mini-btn-primary" data-inline-save>Zapisz zmiany</button>
+                        <button type="button" class="tm-ambro-mini-btn" data-inline-reset disabled>Reset</button>
+                        <button type="button" class="tm-ambro-mini-btn" data-inline-cancel>Zamknij</button>
+                      </div>
+                      <div class="tm-ambro-custom-note" style="margin-top:6px;">Pola kartonu: dł, szer, wys (m) oraz waga (kg).</div>
                     </div>
                     <div class="tm-ambro-cartons-list is-collapsed" id="${detailsId}">
                       ${cartons
@@ -1415,6 +1509,156 @@
         btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
         btn.textContent = collapsed ? "Szczegóły ▾" : "Szczegóły ▴";
       });
+    });
+
+    // Inline edycja kartonów w wierszu produktu.
+    const inlineRenderCartonRow = (carton = null) => `
+      <div class="tm-ambro-carton-row" data-inline-carton-row>
+        <input type="number" min="0" step="0.01" class="tm-ambro-input" data-inline-d1 placeholder="dł [m]" value="${carton ? escapeHtml(String(carton.dims[0])) : ""}">
+        <input type="number" min="0" step="0.01" class="tm-ambro-input" data-inline-d2 placeholder="szer [m]" value="${carton ? escapeHtml(String(carton.dims[1])) : ""}">
+        <input type="number" min="0" step="0.01" class="tm-ambro-input" data-inline-d3 placeholder="wys [m]" value="${carton ? escapeHtml(String(carton.dims[2])) : ""}">
+        <input type="number" min="0" step="0.01" class="tm-ambro-input" data-inline-w placeholder="waga [kg]" value="${carton ? escapeHtml(String(carton.weight)) : ""}">
+        <button type="button" class="tm-ambro-mini-btn" data-inline-remove-carton title="Usuń karton">×</button>
+      </div>
+    `;
+
+    function normalizeInlineCartons(editorEl) {
+      return Array.from(editorEl.querySelectorAll("[data-inline-carton-row]"))
+        .map((row) => {
+          const d1 = Number(String(row.querySelector("[data-inline-d1]")?.value || "").replace(",", "."));
+          const d2 = Number(String(row.querySelector("[data-inline-d2]")?.value || "").replace(",", "."));
+          const d3 = Number(String(row.querySelector("[data-inline-d3]")?.value || "").replace(",", "."));
+          const w = Number(String(row.querySelector("[data-inline-w]")?.value || "").replace(",", "."));
+          if (!Number.isFinite(d1) || !Number.isFinite(d2) || !Number.isFinite(d3) || !Number.isFinite(w)) return null;
+          if (d1 <= 0 || d2 <= 0 || d3 <= 0 || w <= 0) return null;
+          return { dims: [d1, d2, d3], weight: w };
+        })
+        .filter(Boolean);
+    }
+
+    function updateRowCartonsMeta(rowEl, cartons) {
+      const cntEl = rowEl.querySelector("[data-cartons-count]");
+      if (cntEl) cntEl.textContent = String(Array.isArray(cartons) ? cartons.length : 0);
+      const resetBtn = rowEl.querySelector("[data-inline-reset]");
+      if (resetBtn) resetBtn.disabled = !selectionOverrides[rowEl.getAttribute("data-product") || ""];
+    }
+
+    function updateRowDetailsPanel(rowEl, cartons) {
+      const detailsId = rowEl.getAttribute("data-details-id");
+      const panel = detailsId ? document.getElementById(detailsId) : null;
+      if (!panel) return;
+      const list = Array.isArray(cartons) ? cartons : [];
+      panel.innerHTML = list
+        .map((c, idx) => {
+          return `
+            <div class="tm-ambro-carton-line">
+              ${idx + 1}: ${Math.round(c.dims[0] * 100)}×${Math.round(c.dims[1] * 100)}×${Math.round(c.dims[2] * 100)} cm / ${c.weight} kg
+            </div>
+          `;
+        })
+        .join("");
+    }
+
+    modal.addEventListener("click", (e) => {
+      const t = e.target;
+      const row = t.closest("[data-product-row]");
+      if (!row) return;
+      const productName = row.getAttribute("data-product") || "";
+      if (!productName) return;
+
+      const editor = row.querySelector("[data-inline-editor]");
+      const wrap = row.querySelector("[data-inline-cartons-wrap]");
+
+      const inlineEditBtn = t.closest("[data-inline-edit]");
+      if (inlineEditBtn) {
+        if (!editor || !wrap) return;
+        const isOpen = editor.classList.toggle("is-open");
+        if (isOpen) {
+          const productMap = getProductsMap();
+          const cartons = getCartonsForSelection(productMap, productName) || [];
+          wrap.innerHTML = (cartons.length ? cartons : [{ dims: [0, 0, 0], weight: 0 }])
+            .map((c) => (c.weight > 0 ? inlineRenderCartonRow(c) : inlineRenderCartonRow(null)))
+            .join("");
+          const resetBtn = row.querySelector("[data-inline-reset]");
+          if (resetBtn) resetBtn.disabled = !selectionOverrides[productName];
+        }
+        return;
+      }
+
+      const inlineCancelBtn = t.closest("[data-inline-cancel]");
+      if (inlineCancelBtn) {
+        editor?.classList.remove("is-open");
+        return;
+      }
+
+      const inlineRemoveBtn = t.closest("[data-inline-remove]");
+      if (inlineRemoveBtn) {
+        const ok = window.confirm(`Usunąć "${cleanProductTitle(productName)}" z wyboru?`);
+        if (!ok) return;
+        const input = modal.querySelector(`.tm-ambro-product-qty[data-product="${CSS.escape(productName)}"]`);
+        if (input) input.value = "0";
+        delete selectionOverrides[productName];
+        editor?.classList.remove("is-open");
+        updateSummary();
+        return;
+      }
+
+      const addCartonBtn = t.closest("[data-inline-add-carton]");
+      if (addCartonBtn) {
+        if (!wrap) return;
+        wrap.insertAdjacentHTML("beforeend", inlineRenderCartonRow());
+        return;
+      }
+
+      const removeCartonBtn = t.closest("[data-inline-remove-carton]");
+      if (removeCartonBtn) {
+        if (!wrap) return;
+        const rows = wrap.querySelectorAll("[data-inline-carton-row]");
+        if (rows.length <= 1) return;
+        const ok = window.confirm("Usunąć ten karton?");
+        if (!ok) return;
+        removeCartonBtn.closest("[data-inline-carton-row]")?.remove();
+        return;
+      }
+
+      const saveBtn = t.closest("[data-inline-save]");
+      if (saveBtn) {
+        if (!editor) return;
+        const cartons = normalizeInlineCartons(editor);
+        if (!cartons.length) {
+          toast("Podaj min. 1 poprawny karton (m/kg).");
+          return;
+        }
+        selectionOverrides[productName] = cartons;
+        updateRowCartonsMeta(row, cartons);
+        updateRowDetailsPanel(row, cartons);
+        const resetBtn = row.querySelector("[data-inline-reset]");
+        if (resetBtn) resetBtn.disabled = false;
+        toast(`Zapisano paczki: ${cleanProductTitle(productName)}`);
+        updateSummary();
+        return;
+      }
+
+      const resetBtn = t.closest("[data-inline-reset]");
+      if (resetBtn) {
+        if (!selectionOverrides[productName]) return;
+        const ok = window.confirm(`Zresetować paczki dla "${cleanProductTitle(productName)}"?`);
+        if (!ok) return;
+        delete selectionOverrides[productName];
+        const productMap = getProductsMap();
+        const cartons = productMap[productName] || [];
+        updateRowCartonsMeta(row, cartons);
+        updateRowDetailsPanel(row, cartons);
+        if (wrap) {
+          wrap.innerHTML = (cartons.length ? cartons : [{ dims: [0, 0, 0], weight: 0 }])
+            .map((c) => (c.weight > 0 ? inlineRenderCartonRow(c) : inlineRenderCartonRow(null)))
+            .join("");
+        }
+        resetBtn.disabled = true;
+        toast(`Zresetowano paczki: ${cleanProductTitle(productName)}`);
+        updateSummary();
+        return;
+      }
     });
   }
 
