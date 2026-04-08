@@ -18,6 +18,10 @@ from contextlib import closing
 from pathlib import Path
 import requests
 import sqlite3
+import threading
+import html
+import math
+from urllib.parse import urlparse
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'suuhouse-magazyn-secret-key-change-in-production-2025')
@@ -32,6 +36,518 @@ app.config['REKLAMACJE_UPLOADS'] = os.environ.get(
     os.path.join(os.path.dirname(__file__), "uploads", "reklamacje"),
 )
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+
+# ----------------------------
+# Mapa zamówień (moduł w Niezbędniku)
+# ----------------------------
+
+MAPA_APP_DIR = Path(__file__).resolve().parent
+MAPA_INSTANCE_DIR = MAPA_APP_DIR / "mapa_instance"
+MAPA_INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
+MAPA_GEOCODE_DB_PATH = MAPA_INSTANCE_DIR / "geocode_cache.sqlite3"
+MAPA_ORDERS_DB_PATH = MAPA_INSTANCE_DIR / "orders_cache.sqlite3"
+MAPA_ADDRESS_OVERRIDE_DB_PATH = MAPA_INSTANCE_DIR / "address_override.sqlite3"
+# Ta sama baza co nadpisania adresów — jeden plik, żeby www-data nie tracił dostępu (osobny plik łatwo zablokować złym chown).
+MAPA_MAP_PREFS_DB_PATH = MAPA_ADDRESS_OVERRIDE_DB_PATH
+MAPA_NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+
+# cache gotowej strony (lista+markery), żeby odświeżenia nie robiły geokodu od zera
+_MAPA_INDEX_LOCK = threading.Lock()
+_MAPA_INDEX_CACHE: dict[str, tuple[float, list[dict], list[dict]]] = {}
+_MAPA_INDEX_TTL_SEC = float(os.getenv("MAPA_INDEX_CACHE_SEC", "45"))
+_MAPA_INDEX_CACHE_MAX_KEYS = 24
+_MAPA_ORDERS_CACHE_TTL_SEC = float(os.getenv("MAPA_ORDERS_CACHE_SEC", "180"))
+
+_MAPA_NOMINATIM_LAST = 0.0  # max ~1 req/s
+
+
+def _mapa_order_status_id_for_api() -> int | None:
+    raw = os.getenv("MAPA_ORDER_STATUS_ID")
+    if raw is None:
+        return 331835  # domyślnie "zapłacone"
+    s = raw.strip()
+    if s == "" or s in ("0", "*") or s.lower() == "all":
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return 331835
+
+
+def _mapa_zone_template_vars() -> dict[str, float]:
+    return {
+        "chrosla_lat": float(os.getenv("MAPA_CHROSLA_LAT", "52.18717")),
+        "chrosla_lng": float(os.getenv("MAPA_CHROSLA_LNG", "21.46692")),
+        "chrosla_radius_km": float(os.getenv("MAPA_CHROSLA_RADIUS_KM", "100")),
+    }
+
+
+def _mapa_sellrocket_order_url_prefix() -> str:
+    base = (
+        os.getenv(
+            "MAPA_SELLROCKET_ORDER_URL_PREFIX",
+            "https://suuhouse.enterprise.sellrocket.pl/unified-orders",
+        )
+        or "https://suuhouse.enterprise.sellrocket.pl/unified-orders"
+    ).strip().rstrip("/")
+    return base + "/"
+
+
+def _mapa_orders_page_context(zone: dict[str, float] | None = None) -> dict:
+    ctx: dict = dict(zone if zone is not None else _mapa_zone_template_vars())
+    ctx["sellrocket_order_base"] = _mapa_sellrocket_order_url_prefix()
+    return ctx
+
+
+def _mapa_haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    r_km = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+    return r_km * c
+
+
+def _mapa_marker_popup_html(row: dict) -> str:
+    dist = row.get("distance_km")
+    dist_part = (
+        f"<span style=\"color:#d7cc36;font-size:14px;font-weight:400\">"
+        f"<span style=\"font-weight:700\">{dist}</span> km</span>"
+        if dist is not None
+        else "<span style=\"color:#9cb0c5\">brak pozycji na mapie</span>"
+    )
+    active = row.get("map_active")
+    if active is None:
+        active = True
+    badge = (
+        "<span style=\"font-size:11px;color:#9ca3af;margin-right:6px\">(nieaktywne)</span>"
+        if not active
+        else ""
+    )
+    note = (row.get("map_note") or "").strip()
+    note_block = ""
+    if note:
+        note_block = (
+            "<div style=\"margin-top:8px;padding:6px 8px;background:rgba(0,0,0,.22);"
+            "border-radius:8px;font-size:12px;color:#e8edf4;line-height:1.35;word-break:break-word\">"
+            f"{html.escape(note)}</div>"
+        )
+    return (
+        "<div style=\"display:flex;justify-content:space-between;align-items:baseline;"
+        "gap:10px;margin:0 0 6px;line-height:1.25\">"
+        f"{badge}<strong style=\"flex-shrink:0\">#{row.get('order_id')}</strong>"
+        f"<span style=\"text-align:right;min-width:0;word-break:break-word\">"
+        f"{html.escape(str(row.get('delivery_fullname') or '—'))}</span></div>"
+        f"{html.escape(str(row.get('address') or '—'))}<br>"
+        f"{dist_part}"
+        f"{note_block}"
+    )
+
+
+def _mapa_orders_cache_key(token: str) -> str:
+    sid = _mapa_order_status_id_for_api()
+    sig = str(sid) if sid is not None else "all"
+    return hashlib.sha256(f"{token}|{sig}".encode("utf-8")).hexdigest()
+
+
+def _mapa_init_orders_cache_db() -> None:
+    with sqlite3.connect(MAPA_ORDERS_DB_PATH) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS orders_cache (
+                token_key TEXT PRIMARY KEY,
+                response_json TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+
+def _mapa_read_orders_cache(token: str) -> tuple[dict | None, float | None]:
+    _mapa_init_orders_cache_db()
+    tk = _mapa_orders_cache_key(token)
+    with sqlite3.connect(MAPA_ORDERS_DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT response_json, created_at FROM orders_cache WHERE token_key = ?",
+            (tk,),
+        ).fetchone()
+    if not row:
+        return None, None
+    try:
+        return json.loads(row[0]), float(row[1])
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None, None
+
+
+def _mapa_write_orders_cache(token: str, data: dict) -> None:
+    _mapa_init_orders_cache_db()
+    tk = _mapa_orders_cache_key(token)
+    now = time.time()
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    with sqlite3.connect(MAPA_ORDERS_DB_PATH) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO orders_cache (token_key, response_json, created_at) VALUES (?, ?, ?)",
+            (tk, payload, now),
+        )
+        conn.commit()
+
+
+def _mapa_init_address_override_db() -> None:
+    with sqlite3.connect(MAPA_ADDRESS_OVERRIDE_DB_PATH) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS address_override (
+                order_id TEXT PRIMARY KEY,
+                address TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+
+def _mapa_read_address_overrides_for_orders(order_ids: list[object]) -> dict[str, str]:
+    ids = [str(x) for x in order_ids if x not in (None, "")]
+    if not ids:
+        return {}
+    _mapa_init_address_override_db()
+    placeholders = ",".join("?" for _ in ids)
+    with sqlite3.connect(MAPA_ADDRESS_OVERRIDE_DB_PATH) as conn:
+        rows = conn.execute(
+            f"SELECT order_id, address FROM address_override WHERE order_id IN ({placeholders})",
+            ids,
+        ).fetchall()
+    out: dict[str, str] = {}
+    for oid, addr in rows:
+        out[str(oid)] = str(addr or "").strip()
+    return out
+
+
+def _mapa_upsert_address_override(order_id: object, address: str) -> None:
+    _mapa_init_address_override_db()
+    now = time.time()
+    with sqlite3.connect(MAPA_ADDRESS_OVERRIDE_DB_PATH) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO address_override (order_id, address, updated_at) VALUES (?, ?, ?)",
+            (str(order_id), str(address or "").strip(), now),
+        )
+        conn.commit()
+
+
+def _mapa_clear_all_address_overrides() -> None:
+    _mapa_init_address_override_db()
+    with sqlite3.connect(MAPA_ADDRESS_OVERRIDE_DB_PATH) as conn:
+        conn.execute("DELETE FROM address_override")
+        conn.commit()
+
+
+def _mapa_init_map_prefs_db() -> None:
+    with sqlite3.connect(MAPA_MAP_PREFS_DB_PATH) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS order_map_pref (
+                order_id TEXT PRIMARY KEY,
+                map_active INTEGER NOT NULL DEFAULT 1,
+                note TEXT NOT NULL DEFAULT '',
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+
+def _mapa_read_map_prefs_for_orders(order_ids: list[object]) -> dict[str, dict[str, object]]:
+    ids = [str(x) for x in order_ids if x not in (None, "")]
+    if not ids:
+        return {}
+    _mapa_init_map_prefs_db()
+    placeholders = ",".join("?" for _ in ids)
+    with sqlite3.connect(MAPA_MAP_PREFS_DB_PATH) as conn:
+        rows = conn.execute(
+            f"SELECT order_id, map_active, note FROM order_map_pref WHERE order_id IN ({placeholders})",
+            ids,
+        ).fetchall()
+    out: dict[str, dict[str, object]] = {}
+    for oid, act, note in rows:
+        out[str(oid)] = {
+            "map_active": bool(act),
+            "note": str(note or "").strip(),
+        }
+    return out
+
+
+def _mapa_upsert_map_pref(order_id: object, map_active: bool, note: str) -> None:
+    _mapa_init_map_prefs_db()
+    now = time.time()
+    note_s = str(note or "").strip()
+    if len(note_s) > 600:
+        note_s = note_s[:600]
+    with sqlite3.connect(MAPA_MAP_PREFS_DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO order_map_pref (order_id, map_active, note, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(order_id) DO UPDATE SET
+                map_active = excluded.map_active,
+                note = excluded.note,
+                updated_at = excluded.updated_at
+            """,
+            (str(order_id), 1 if map_active else 0, note_s, now),
+        )
+        conn.commit()
+
+
+def _mapa_map_row_for_order_id(order_id: str) -> dict | None:
+    """Pełny wiersz mapy (adres, geokod, dystans, uwagi) — do popupu po zapisie preferencji."""
+    token = (os.getenv("SELLROCKET_BL_TOKEN") or "").strip()
+    if not token:
+        return None
+    err, data, _ = _mapa_get_orders_cached(token, force_refresh=False)
+    if err:
+        return None
+    orders = (data or {}).get("orders") or []
+    target = next((o for o in orders if str(o.get("order_id")) == str(order_id)), None)
+    if not target:
+        return None
+    row = _mapa_order_lines(target)
+    overrides = _mapa_read_address_overrides_for_orders([order_id])
+    override_addr = overrides.get(str(order_id))
+    if override_addr:
+        row["address_line"] = override_addr
+        row["address"] = override_addr
+    zone = _mapa_zone_template_vars()
+    geo_obj = {**target}
+    lat, lng = _mapa_geocode_cached_for_order(geo_obj, explicit_query=override_addr)
+    row["lat"] = lat
+    row["lng"] = lng
+    row["geocode_ok"] = lat is not None and lng is not None
+    ch_lat, ch_lng = zone["chrosla_lat"], zone["chrosla_lng"]
+    if lat is not None and lng is not None:
+        row["distance_km"] = round(_mapa_haversine_km(ch_lat, ch_lng, lat, lng), 1)
+    else:
+        row["distance_km"] = None
+    mp = _mapa_read_map_prefs_for_orders([order_id]).get(str(order_id)) or {}
+    row["map_active"] = bool(mp.get("map_active", True))
+    row["map_note"] = str(mp.get("note") or "")
+    return row
+
+
+def _mapa_index_cache_key(token: str, slice_raw: list[dict], zone: dict[str, float], overrides: dict[str, str]) -> str:
+    key_obj = [
+        (
+            o.get("order_id"),
+            o.get("date_add"),
+            (overrides.get(str(o.get("order_id"))) or "").strip() or _mapa_build_geocode_query(o),
+        )
+        for o in slice_raw
+    ]
+    zone_sig = [zone["chrosla_lat"], zone["chrosla_lng"], zone["chrosla_radius_km"]]
+    blob = json.dumps([key_obj, zone_sig], separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(token.encode("utf-8") + b"|" + blob).hexdigest()
+
+
+def _mapa_fetch_orders(token: str) -> tuple[str | None, dict | None]:
+    connector_url = (os.getenv("SELLROCKET_CONNECTOR_URL") or "https://suuhouse-beel-api.enterprise.sellrocket.pl/connector.php").strip()
+    sid = _mapa_order_status_id_for_api()
+    params: dict[str, object] = {
+        "id_from": 0,
+        "date_from": 946684800,
+        "get_unconfirmed_orders": False,
+    }
+    if sid is not None:
+        params["status_id"] = sid
+    try:
+        resp = requests.post(
+            connector_url,
+            data={
+                "method": "getOrders",
+                "parameters": json.dumps(params, separators=(",", ":")),
+            },
+            headers={"X-BLToken": token},
+            timeout=60,
+        )
+    except Exception as exc:
+        return str(exc), None
+    if resp.status_code >= 400:
+        return f"HTTP {resp.status_code}", None
+    try:
+        data = resp.json()
+    except Exception:
+        return "Odpowiedź nie jest JSON.", None
+    if data.get("status") != "SUCCESS":
+        msg = data.get("error_message") or data.get("error_code") or "Błąd API"
+        return str(msg), data
+    return None, data
+
+
+def _mapa_get_orders_cached(token: str, force_refresh: bool = False) -> tuple[str | None, dict | None, str]:
+    now = time.time()
+    cached_data, cached_ts = _mapa_read_orders_cache(token)
+    if not force_refresh and cached_data is not None and cached_ts is not None:
+        if now - cached_ts <= _MAPA_ORDERS_CACHE_TTL_SEC:
+            return None, cached_data, "cache"
+    err, fresh_data = _mapa_fetch_orders(token)
+    if err is None and fresh_data is not None:
+        _mapa_write_orders_cache(token, fresh_data)
+        return None, fresh_data, "api"
+    if cached_data is not None:
+        return None, cached_data, "stale"
+    return err, fresh_data, "api"
+
+
+def _mapa_build_geocode_query(order_obj: dict) -> str:
+    # priorytet: dostawa
+    addr = str(order_obj.get("delivery_address") or "").strip()
+    pc = str(order_obj.get("delivery_postcode") or "").strip()
+    city = str(order_obj.get("delivery_city") or "").strip()
+    cc = str(order_obj.get("delivery_country_code") or "").strip() or "PL"
+    parts = [p for p in [addr, pc, city, cc] if p]
+    return ", ".join(parts)
+
+
+def _mapa_init_geocode_db() -> None:
+    with sqlite3.connect(MAPA_GEOCODE_DB_PATH) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS geocode_cache (
+                query_hash TEXT PRIMARY KEY,
+                query TEXT NOT NULL,
+                lat REAL,
+                lng REAL,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+
+def _mapa_geocode_cache_get(query: str) -> tuple[float | None, float | None] | None:
+    _mapa_init_geocode_db()
+    q = (query or "").strip()
+    if not q:
+        return None
+    qh = hashlib.sha256(q.encode("utf-8")).hexdigest()
+    with sqlite3.connect(MAPA_GEOCODE_DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT lat, lng FROM geocode_cache WHERE query_hash = ?",
+            (qh,),
+        ).fetchone()
+    if not row:
+        return None
+    lat, lng = row[0], row[1]
+    try:
+        return (float(lat) if lat is not None else None, float(lng) if lng is not None else None)
+    except Exception:
+        return None
+
+
+def _mapa_geocode_cache_put(query: str, lat: float | None, lng: float | None) -> None:
+    _mapa_init_geocode_db()
+    q = (query or "").strip()
+    if not q:
+        return
+    qh = hashlib.sha256(q.encode("utf-8")).hexdigest()
+    now = time.time()
+    with sqlite3.connect(MAPA_GEOCODE_DB_PATH) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO geocode_cache (query_hash, query, lat, lng, created_at) VALUES (?, ?, ?, ?, ?)",
+            (qh, q, lat, lng, now),
+        )
+        conn.commit()
+
+
+def _mapa_geocode_nominatim(query: str) -> tuple[float | None, float | None]:
+    global _MAPA_NOMINATIM_LAST
+    q = (query or "").strip()
+    if not q:
+        return None, None
+    # limit 1 req/s
+    now = time.time()
+    wait = 1.05 - (now - _MAPA_NOMINATIM_LAST)
+    if wait > 0:
+        time.sleep(wait)
+    try:
+        resp = requests.get(
+            MAPA_NOMINATIM_URL,
+            params={"q": q, "format": "json", "limit": 1},
+            headers={"User-Agent": "mebloszyk.pl/1.0 (order map)"},
+            timeout=25,
+        )
+        _MAPA_NOMINATIM_LAST = time.time()
+        if resp.status_code >= 400:
+            return None, None
+        data = resp.json()
+        if not data:
+            return None, None
+        lat = float(data[0].get("lat"))
+        lng = float(data[0].get("lon"))
+        return lat, lng
+    except Exception:
+        _MAPA_NOMINATIM_LAST = time.time()
+        return None, None
+
+
+def _mapa_geocode_cached_for_order(order_obj: dict, explicit_query: str | None = None) -> tuple[float | None, float | None]:
+    query = (explicit_query or "").strip() or _mapa_build_geocode_query(order_obj)
+    cached = _mapa_geocode_cache_get(query)
+    if cached is not None:
+        return cached
+    lat, lng = _mapa_geocode_nominatim(query)
+    _mapa_geocode_cache_put(query, lat, lng)
+    return lat, lng
+
+
+def _mapa_order_lines(o: dict) -> dict:
+    def pick(*keys):
+        for k in keys:
+            if k in o and o.get(k) not in (None, ""):
+                return o.get(k)
+        return ""
+
+    oid = pick("order_id")
+    addr = pick("delivery_address")
+    pc = pick("delivery_postcode")
+    city = pick("delivery_city")
+    addr_line = ", ".join([p for p in [str(addr).strip(), str(pc).strip(), str(city).strip()] if p])
+    products_out = []
+    for p in (o.get("products") or []):
+        try:
+            qty = p.get("quantity") or 0
+        except Exception:
+            qty = 0
+        products_out.append(
+            {
+                "qty": qty,
+                "name": str(p.get("name") or "").strip(),
+                "sku": str(p.get("sku") or "").strip(),
+            }
+        )
+    return {
+        "order_id": oid,
+        "order_status_id": pick("order_status_id"),
+        "delivery_fullname": pick("delivery_fullname"),
+        "delivery_address": addr,
+        "delivery_postcode": pc,
+        "delivery_city": city,
+        "delivery_country_code": pick("delivery_country_code"),
+        "address": addr_line or str(addr or "").strip() or "—",
+        "address_line": addr_line or str(addr or "").strip() or "—",
+        "email": pick("email"),
+        "phone": pick("phone"),
+        "date_add": fmt_ts(pick("date_add")),
+        "products": products_out,
+    }
+
+
+def fmt_ts(ts: object | None) -> str:
+    if ts is None:
+        return "—"
+    try:
+        return datetime.datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError, OSError):
+        return str(ts)
 
 # Dozwolone rozszerzenia plików
 ALLOWED_EXTENSIONS = {
@@ -113,6 +629,28 @@ def _optimize_kontakt_logo_in_place(path: str) -> bool:
         return False
 
 
+def _read_dotenv_value(key, default=""):
+    env_val = os.environ.get(key, "").strip()
+    if env_val:
+        return env_val
+    env_file = os.path.join(os.path.dirname(__file__), ".env")
+    if not os.path.isfile(env_file):
+        return default
+    try:
+        with open(env_file, "r", encoding="utf-8") as f:
+            for raw in f:
+                line = (raw or "").strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() != key:
+                    continue
+                return v.strip().strip('"').strip("'")
+    except Exception:
+        return default
+    return default
+
+
 # Google Sheets / Drive file (stan magazynu) – fallback
 GOOGLE_SHEET_ID = '1qN8sUUUXv1PXjjVLoEwhCeoTI5XDUQzC4gHQLNkhvhg'
 GOOGLE_SHEET_GID = '0'
@@ -134,6 +672,18 @@ KONTAKTY_JSON_FILE = os.path.join(os.path.dirname(__file__), "shared", "kontakty
 KONTAKTY_LOGO_DIR = os.path.join(os.path.dirname(__file__), "static", "kontakty")
 KONTAKTY_LOGO_URL_PREFIX = "/static/kontakty/"
 KONTAKTY_LOGO_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+BACKUP_RELEASE_DIR = os.path.join(os.path.dirname(__file__), "backups", "releases")
+BACKUP_ROLLBACK_PRE_DIR = os.path.join(os.path.dirname(__file__), "backups", "rollback_pre")
+BACKUP_RUNTIME_PASSWORD = _read_dotenv_value("BACKUP_RUNTIME_PASSWORD", "").strip()
+SETTINGS_ACCESS_PASSWORD = _read_dotenv_value("SETTINGS_ACCESS_PASSWORD", "").strip()
+SETTINGS_ACCESS_TTL_MINUTES = int(os.environ.get("SETTINGS_ACCESS_TTL_MINUTES", "30") or "30")
+SETTINGS_ACCESS_SESSION_KEY = "settings_access_until_ts"
+BACKUP_DEFAULT_ITEMS = [
+    "app.py",
+    "templates/base_panel.html",
+    "templates/kontakty.html",
+    "shared/kontakty.json",
+]
 SKU_INDEX_CACHE_FILE = os.path.join(os.path.dirname(__file__), "sku_index_cache.json")
 SKU_MANUAL_FILE = os.path.join(os.path.dirname(__file__), "sku_manual.json")
 REKLAMACJE_STATUSES = [
@@ -307,6 +857,175 @@ def _normalize_kontakt_fields(payload):
         "phone": str(payload.get("phone") or "").strip()[:80],
         "email": str(payload.get("email") or "").strip()[:200],
     }
+
+
+def _bytes_human(n):
+    try:
+        n = int(n)
+    except Exception:
+        return "0 B"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    value = float(n)
+    idx = 0
+    while value >= 1024.0 and idx < len(units) - 1:
+        value /= 1024.0
+        idx += 1
+    if idx == 0:
+        return f"{int(value)} {units[idx]}"
+    return f"{value:.2f} {units[idx]}"
+
+
+def _backup_paths():
+    root = os.path.dirname(__file__)
+    releases = os.path.join(root, "backups", "releases")
+    rollback_pre = os.path.join(root, "backups", "rollback_pre")
+    return root, releases, rollback_pre
+
+
+def _ensure_backup_dirs():
+    _, releases, rollback_pre = _backup_paths()
+    os.makedirs(releases, exist_ok=True)
+    os.makedirs(rollback_pre, exist_ok=True)
+
+
+def _backup_append_log(action, details=""):
+    ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    log_path = os.path.join(os.path.dirname(__file__), "zmiany.log")
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{ts} | {action} | {details}\n")
+    except Exception:
+        pass
+
+
+def _snapshot_dir_size(path):
+    total = 0
+    for base, _, files in os.walk(path):
+        for name in files:
+            fp = os.path.join(base, name)
+            try:
+                total += os.path.getsize(fp)
+            except Exception:
+                pass
+    return total
+
+
+def _backup_list_releases():
+    _ensure_backup_dirs()
+    _, releases_dir, _ = _backup_paths()
+    out = []
+    for name in os.listdir(releases_dir):
+        folder = os.path.join(releases_dir, name)
+        if not os.path.isdir(folder):
+            continue
+        meta_path = os.path.join(folder, "metadata.json")
+        note = ""
+        change_id = ""
+        created_at = ""
+        files_count = 0
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                note = str(meta.get("note") or "")
+                change_id = str(meta.get("change_id") or "")
+                created_at = str(meta.get("created_at_utc") or "")
+                files_count = len(meta.get("copied_files") or [])
+            except Exception:
+                pass
+        size_bytes = _snapshot_dir_size(folder)
+        out.append({
+            "name": name,
+            "change_id": change_id,
+            "created_at_utc": created_at,
+            "note": note,
+            "files_count": files_count,
+            "size_bytes": size_bytes,
+            "size_human": _bytes_human(size_bytes),
+        })
+    out.sort(key=lambda x: x.get("name", ""), reverse=True)
+    return out
+
+
+def _backup_create_snapshot(note="", change_id=""):
+    _ensure_backup_dirs()
+    root, releases_dir, _ = _backup_paths()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    stamp = now.strftime("%Y%m%d_%H%M%S")
+    change_id = (change_id or f"R-{now.strftime('%Y%m%d-%H%M%S')}").strip()
+    safe_change_id = "".join(ch for ch in change_id if ch.isalnum() or ch in ("-", "_"))
+    snapshot_name = f"{safe_change_id}__{stamp}"
+    snapshot_dir = os.path.join(releases_dir, snapshot_name)
+    os.makedirs(snapshot_dir, exist_ok=False)
+
+    copied_files = []
+    missing_files = []
+    for rel in BACKUP_DEFAULT_ITEMS:
+        src = os.path.join(root, rel)
+        if not os.path.isfile(src):
+            missing_files.append(rel)
+            continue
+        dst = os.path.join(snapshot_dir, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+        copied_files.append({"path": rel, "size": os.path.getsize(src)})
+
+    meta = {
+        "change_id": safe_change_id,
+        "created_at_utc": now.isoformat(),
+        "note": str(note or "").strip(),
+        "copied_files": copied_files,
+        "missing_files": missing_files,
+    }
+    with open(os.path.join(snapshot_dir, "metadata.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    _backup_append_log("RELEASE", f"{safe_change_id} | {snapshot_name} | files={len(copied_files)} | {note}")
+    return snapshot_name
+
+
+def _backup_restore_snapshot(snapshot_name, note=""):
+    _ensure_backup_dirs()
+    root, releases_dir, rollback_pre_dir = _backup_paths()
+    snapshot_dir = os.path.join(releases_dir, snapshot_name)
+    if not os.path.isdir(snapshot_dir):
+        return False, "Nie znaleziono wybranej kopii."
+    meta_path = os.path.join(snapshot_dir, "metadata.json")
+    if not os.path.isfile(meta_path):
+        return False, "Brak metadata.json w kopii."
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+    except Exception:
+        return False, "Nie udało się odczytać metadata.json."
+
+    entries = meta.get("copied_files") or []
+    if not entries:
+        return False, "Kopia nie zawiera plików do przywrócenia."
+
+    pre_stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
+    pre_dir = os.path.join(rollback_pre_dir, pre_stamp)
+    os.makedirs(pre_dir, exist_ok=True)
+
+    restored = 0
+    for item in entries:
+        rel = str(item.get("path") or "").strip()
+        if not rel:
+            continue
+        src = os.path.join(snapshot_dir, rel)
+        dst = os.path.join(root, rel)
+        if not os.path.isfile(src):
+            continue
+        if os.path.isfile(dst):
+            pre_dst = os.path.join(pre_dir, rel)
+            os.makedirs(os.path.dirname(pre_dst), exist_ok=True)
+            shutil.copy2(dst, pre_dst)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+        restored += 1
+
+    _backup_append_log("ROLLBACK", f"{snapshot_name} | restored={restored} | {note}")
+    return True, f"Przywrócono {restored} plików z {snapshot_name}."
 
 
 def normalize_sku(value):
@@ -718,9 +1437,9 @@ def get_user(username):
     """Pobiera użytkownika z bazy danych"""
     with closing(get_reklamacje_db()) as conn:
         row = conn.execute(
-            "SELECT id, username, password_hash, role, is_active, must_change_password, created_at, updated_at FROM users WHERE username = %s"
+            "SELECT id, username, password_hash, role, is_active, must_change_password, created_at, updated_at FROM users WHERE LOWER(username) = LOWER(%s)"
             if using_postgres()
-            else "SELECT id, username, password_hash, role, is_active, must_change_password, created_at, updated_at FROM users WHERE username = ?",
+            else "SELECT id, username, password_hash, role, is_active, must_change_password, created_at, updated_at FROM users WHERE LOWER(username) = LOWER(?)",
             (username,)
         ).fetchone()
         if not row:
@@ -896,6 +1615,38 @@ def role_required(required_role):
             return f(*args, **kwargs)
         return decorated_function
     return decorator
+
+
+def _is_settings_access_granted():
+    # Jeśli hasło nie jest skonfigurowane, nie blokujemy wejścia.
+    if not SETTINGS_ACCESS_PASSWORD:
+        return True
+    raw_until = session.get(SETTINGS_ACCESS_SESSION_KEY)
+    if raw_until is None:
+        return False
+    try:
+        return float(raw_until) > time.time()
+    except Exception:
+        return False
+
+
+def _grant_settings_access():
+    ttl_seconds = max(60, int(SETTINGS_ACCESS_TTL_MINUTES * 60))
+    session[SETTINGS_ACCESS_SESSION_KEY] = time.time() + ttl_seconds
+    return ttl_seconds
+
+
+def settings_access_required(f):
+    @wraps(f)
+    @login_required
+    def decorated_function(*args, **kwargs):
+        if _is_settings_access_granted():
+            return f(*args, **kwargs)
+        return jsonify({
+            "success": False,
+            "error": "Dostęp do ustawień zablokowany. Podaj hasło do ustawień.",
+        }), 403
+    return decorated_function
 
 def get_product_stats():
     """Pobiera statystyki produktów z magazynu (pergole, domki, sztachety, deski)"""
@@ -1174,6 +1925,7 @@ def login():
         
         user = get_user(username)
         if user and user['is_active'] and verify_password(user['password_hash'], password):
+            session.pop(SETTINGS_ACCESS_SESSION_KEY, None)
             session['logged_in'] = True
             session['username'] = user['username']
             session['user_id'] = user['id']
@@ -1206,6 +1958,132 @@ def magazyn():
                          sheet_id=GOOGLE_SHEET_ID,
                          sheet_gid=GOOGLE_SHEET_GID,
                          username=session.get('username', 'Użytkownik'))
+
+
+@app.route('/mapa')
+@login_required
+def mapa_orders():
+    token = (os.getenv("SELLROCKET_BL_TOKEN") or "").strip()
+    force_refresh = request.args.get("refresh") == "1"
+    orders_source = "api"
+    if not token:
+        return render_template(
+            "mapa_orders.html",
+            orders=[],
+            markers=[],
+            error="Brak SELLROCKET_BL_TOKEN w konfiguracji serwera.",
+            orders_source=orders_source,
+            **_mapa_orders_page_context(),
+        )
+
+    if force_refresh:
+        _mapa_clear_all_address_overrides()
+        with _MAPA_INDEX_LOCK:
+            _MAPA_INDEX_CACHE.clear()
+
+    err, data, orders_source = _mapa_get_orders_cached(token, force_refresh=force_refresh)
+    if err:
+        return render_template(
+            "mapa_orders.html",
+            orders=[],
+            markers=[],
+            error=err,
+            orders_source=orders_source,
+            **_mapa_orders_page_context(),
+        )
+
+    orders = (data or {}).get("orders") or []
+
+    def _order_ts(raw: dict) -> int:
+        try:
+            return int(raw.get("date_add") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    orders_sorted = sorted(orders, key=_order_ts, reverse=True)
+    max_orders = int(os.getenv("MAPA_MAX_ORDERS", "20"))
+    slice_raw = orders_sorted[:max_orders]
+    overrides = _mapa_read_address_overrides_for_orders([o.get("order_id") for o in slice_raw])
+    map_prefs = _mapa_read_map_prefs_for_orders([o.get("order_id") for o in slice_raw])
+
+    zone = _mapa_zone_template_vars()
+    ck = _mapa_index_cache_key(token, slice_raw, zone, overrides)
+    with _MAPA_INDEX_LOCK:
+        hit = _MAPA_INDEX_CACHE.get(ck)
+        if hit is not None and time.monotonic() - hit[0] <= _MAPA_INDEX_TTL_SEC:
+            rows, markers = hit[1], hit[2]
+            return render_template(
+                "mapa_orders.html",
+                orders=rows,
+                markers=markers,
+                error=None,
+                orders_source=orders_source,
+                **_mapa_orders_page_context(zone),
+            )
+
+    rows: list[dict] = []
+    ch_lat, ch_lng = zone["chrosla_lat"], zone["chrosla_lng"]
+    for o in slice_raw:
+        row = _mapa_order_lines(o)
+        oid = str(row.get("order_id") or "")
+        override_addr = overrides.get(oid)
+        if override_addr:
+            row["address_line"] = override_addr
+            row["address"] = override_addr
+        row["_sort_ts"] = _order_ts(o)
+        geo_obj = {**o}
+        lat, lng = _mapa_geocode_cached_for_order(geo_obj, explicit_query=override_addr)
+        row["lat"] = lat
+        row["lng"] = lng
+        row["geocode_ok"] = lat is not None and lng is not None
+        if lat is not None and lng is not None:
+            row["distance_km"] = round(_mapa_haversine_km(ch_lat, ch_lng, lat, lng), 1)
+        else:
+            row["distance_km"] = None
+        pr = map_prefs.get(oid) or {}
+        row["map_active"] = bool(pr.get("map_active", True))
+        row["map_note"] = str(pr.get("note") or "")
+        rows.append(row)
+
+    def _sidebar_sort_key(r: dict) -> tuple:
+        d = r.get("distance_km")
+        ts = int(r.get("_sort_ts") or 0)
+        if d is None:
+            return (1, -ts)
+        try:
+            return (0, float(d))
+        except (TypeError, ValueError):
+            return (1, -ts)
+
+    rows.sort(key=_sidebar_sort_key)
+    for r in rows:
+        r.pop("_sort_ts", None)
+
+    markers = [
+        {
+            "order_id": r["order_id"],
+            "lat": r["lat"],
+            "lng": r["lng"],
+            "popup": _mapa_marker_popup_html(r),
+            "map_active": r.get("map_active", True),
+        }
+        for r in rows
+        if r.get("lat") is not None and r.get("lng") is not None
+    ]
+
+    with _MAPA_INDEX_LOCK:
+        _MAPA_INDEX_CACHE[ck] = (time.monotonic(), rows, markers)
+        if len(_MAPA_INDEX_CACHE) > _MAPA_INDEX_CACHE_MAX_KEYS:
+            _MAPA_INDEX_CACHE.clear()
+
+    return render_template(
+        "mapa_orders.html",
+        orders=rows,
+        markers=markers,
+        error=None,
+        orders_source=orders_source,
+        **_mapa_orders_page_context(zone),
+    )
 
 
 def fetch_inventory():
@@ -3479,7 +4357,13 @@ def delete_converter_session(user_id, session_id):
 @app.route('/ustawienia')
 @login_required
 def ustawienia():
-    return render_template('ustawienia.html', username=session.get('username', 'Użytkownik'))
+    return render_template(
+        'ustawienia.html',
+        username=session.get('username', 'Użytkownik'),
+        settings_access_required=bool(SETTINGS_ACCESS_PASSWORD),
+        settings_access_granted=_is_settings_access_granted(),
+        settings_access_ttl_minutes=SETTINGS_ACCESS_TTL_MINUTES,
+    )
 
 @app.route('/planer')
 @login_required
@@ -3661,6 +4545,113 @@ def event_log_export():
     resp = Response(output.getvalue(), mimetype="text/csv")
     resp.headers["Content-Disposition"] = "attachment; filename=dziennik.csv"
     return resp
+@app.route("/api/order-map-prefs", methods=["POST"])
+@login_required
+def mapa_order_map_prefs_api():
+    payload = request.get_json(silent=True) or {}
+    order_id = payload.get("order_id")
+    if order_id in (None, ""):
+        return jsonify({"ok": False, "error": "Brak order_id"}), 400
+    if "map_active" not in payload:
+        return jsonify({"ok": False, "error": "Brak map_active"}), 400
+    map_active = bool(payload.get("map_active"))
+    note = str(payload.get("note") or "").strip()
+    if len(note) > 600:
+        return jsonify({"ok": False, "error": "Uwaga jest za długa (max 600 znaków)"}), 400
+    _mapa_upsert_map_pref(order_id, map_active, note)
+    with _MAPA_INDEX_LOCK:
+        _MAPA_INDEX_CACHE.clear()
+    row = _mapa_map_row_for_order_id(str(order_id))
+    popup = _mapa_marker_popup_html(row) if row else ""
+    return jsonify(
+        {
+            "ok": True,
+            "order_id": str(order_id),
+            "map_active": map_active,
+            "note": note,
+            "popup": popup,
+        }
+    )
+
+
+@app.route("/api/order-address-override", methods=["POST"])
+@login_required
+def mapa_order_address_override_api():
+    payload = request.get_json(silent=True) or {}
+    order_id = payload.get("order_id")
+    address = str(payload.get("address") or "").strip()
+    if order_id in (None, ""):
+        return jsonify({"ok": False, "error": "Brak order_id"}), 400
+    if len(address) > 255:
+        return jsonify({"ok": False, "error": "Adres jest za długi (max 255 znaków)"}), 400
+    _mapa_upsert_address_override(order_id, address)
+    with _MAPA_INDEX_LOCK:
+        _MAPA_INDEX_CACHE.clear()
+    return jsonify({"ok": True, "address": address})
+
+
+@app.route("/api/order-address-recalc", methods=["POST"])
+@login_required
+def mapa_order_address_recalc_api():
+    payload = request.get_json(silent=True) or {}
+    order_id = str(payload.get("order_id") or "").strip()
+    if not order_id:
+        return jsonify({"ok": False, "error": "Brak order_id"}), 400
+
+    token = (os.getenv("SELLROCKET_BL_TOKEN") or "").strip()
+    if not token:
+        return jsonify({"ok": False, "error": "Brak SELLROCKET_BL_TOKEN"}), 503
+
+    err, data, _src = _mapa_get_orders_cached(token, force_refresh=False)
+    if err:
+        return jsonify({"ok": False, "error": f"Błąd API: {err}"}), 502
+
+    orders = (data or {}).get("orders") or []
+    target = next((o for o in orders if str(o.get("order_id")) == order_id), None)
+    if target is None:
+        return jsonify({"ok": False, "error": "Nie znaleziono zamówienia w API."}), 404
+
+    overrides = _mapa_read_address_overrides_for_orders([order_id])
+    row = _mapa_order_lines(target)
+    override_addr = overrides.get(order_id)
+    if override_addr:
+        row["address_line"] = override_addr
+        row["address"] = override_addr
+
+    geo_obj = {**target}
+    lat, lng = _mapa_geocode_cached_for_order(geo_obj, explicit_query=override_addr)
+    row["lat"] = lat
+    row["lng"] = lng
+    row["geocode_ok"] = lat is not None and lng is not None
+
+    zone = _mapa_zone_template_vars()
+    if lat is not None and lng is not None:
+        row["distance_km"] = round(_mapa_haversine_km(zone["chrosla_lat"], zone["chrosla_lng"], lat, lng), 1)
+    else:
+        row["distance_km"] = None
+
+    mp = _mapa_read_map_prefs_for_orders([order_id]).get(order_id) or {}
+    row["map_active"] = bool(mp.get("map_active", True))
+    row["map_note"] = str(mp.get("note") or "")
+
+    with _MAPA_INDEX_LOCK:
+        _MAPA_INDEX_CACHE.clear()
+
+    return jsonify(
+        {
+            "ok": True,
+            "order_id": order_id,
+            "geocode_ok": row["geocode_ok"],
+            "lat": row["lat"],
+            "lng": row["lng"],
+            "distance_km": row["distance_km"],
+            "address": row["address"],
+            "address_line": row["address"],
+            "map_active": row["map_active"],
+            "map_note": row["map_note"],
+            "popup": _mapa_marker_popup_html(row),
+        }
+    )
 
 # ========== KONWERTER CSV API ==========
 
@@ -3737,10 +4728,26 @@ def converter_session_delete_api(session_id):
     return jsonify({"success": True})
 
 
+@app.route('/api/settings/access', methods=['POST'])
+@login_required
+def settings_access_api():
+    payload = request.get_json(silent=True) or {}
+    password = payload.get("password", "")
+    if not SETTINGS_ACCESS_PASSWORD:
+        ttl_seconds = _grant_settings_access()
+        return jsonify({"success": True, "ttl_seconds": ttl_seconds})
+    if str(password or "") != SETTINGS_ACCESS_PASSWORD:
+        return jsonify({"success": False, "error": "Nieprawidłowe hasło do ustawień."}), 403
+    ttl_seconds = _grant_settings_access()
+    log_event("settings_access_granted", f"ttl_s={ttl_seconds}")
+    return jsonify({"success": True, "ttl_seconds": ttl_seconds})
+
+
 # ========== USER MANAGEMENT API ==========
 
 @app.route('/api/users', methods=['GET', 'POST'])
 @role_required('admin')
+@settings_access_required
 def users_api():
     """API do zarządzania użytkownikami (tylko admin)"""
     if request.method == 'GET':
@@ -3774,6 +4781,7 @@ def users_api():
 
 @app.route('/api/users/<user_id>/password', methods=['PUT'])
 @login_required
+@settings_access_required
 def user_password_api(user_id):
     """API do zmiany hasła użytkownika"""
     payload = request.get_json(silent=True) or {}
@@ -3811,6 +4819,7 @@ def user_password_api(user_id):
 
 @app.route('/api/users/<user_id>/toggle', methods=['PUT'])
 @role_required('admin')
+@settings_access_required
 def user_toggle_api(user_id):
     """API do przełączania statusu aktywnego użytkownika (tylko admin)"""
     result = toggle_user_active(user_id)
@@ -3821,6 +4830,7 @@ def user_toggle_api(user_id):
 
 @app.route('/api/users/<user_id>/username', methods=['PUT'])
 @role_required('admin')
+@settings_access_required
 def user_username_api(user_id):
     """API do zmiany nazwy użytkownika (tylko admin)"""
     payload = request.get_json(silent=True) or {}
@@ -3842,6 +4852,7 @@ def user_username_api(user_id):
 
 @app.route('/api/users/<user_id>/role', methods=['PUT'])
 @role_required('admin')
+@settings_access_required
 def user_role_api(user_id):
     """API do zmiany roli użytkownika (tylko admin)"""
     payload = request.get_json(silent=True) or {}
@@ -3858,6 +4869,7 @@ def user_role_api(user_id):
 
 @app.route('/api/users/<user_id>', methods=['DELETE'])
 @role_required('admin')
+@settings_access_required
 def user_delete_api(user_id):
     """API do usuwania użytkownika (tylko admin)"""
     current_user_id = session.get('user_id')
@@ -3873,6 +4885,94 @@ def user_delete_api(user_id):
         conn.commit()
     log_event("user_delete", f"target_id={user_id} username={target.get('username')}")
     return jsonify({"success": True})
+
+
+def _backup_validate_password(password):
+    configured = str(BACKUP_RUNTIME_PASSWORD or "").strip()
+    if not configured:
+        return False
+    return str(password or "") == configured
+
+
+@app.route('/api/backups', methods=['GET'])
+@role_required('admin')
+@settings_access_required
+def backups_list_api():
+    items = _backup_list_releases()
+    return jsonify({
+        "success": True,
+        "items": items,
+        "password_configured": bool(str(BACKUP_RUNTIME_PASSWORD or "").strip()),
+    })
+
+
+@app.route('/api/backups/create', methods=['POST'])
+@role_required('admin')
+@settings_access_required
+def backups_create_api():
+    payload = request.get_json(silent=True) or {}
+    password = payload.get("password", "")
+    note = (payload.get("note") or "").strip()
+    if not str(BACKUP_RUNTIME_PASSWORD or "").strip():
+        return jsonify({"success": False, "error": "Ustaw BACKUP_RUNTIME_PASSWORD w środowisku (.env / system) i zrestartuj aplikację."}), 503
+    if not _backup_validate_password(password):
+        return jsonify({"success": False, "error": "Nieprawidłowe hasło akcji backup."}), 403
+    try:
+        snapshot_name = _backup_create_snapshot(note=note, change_id="")
+        log_event("backup_create", f"snapshot={snapshot_name}")
+        return jsonify({"success": True, "snapshot": snapshot_name})
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@app.route('/api/backups/restore', methods=['POST'])
+@role_required('admin')
+@settings_access_required
+def backups_restore_api():
+    payload = request.get_json(silent=True) or {}
+    password = payload.get("password", "")
+    snapshot = (payload.get("snapshot") or "").strip()
+    note = (payload.get("note") or "").strip()
+    if not str(BACKUP_RUNTIME_PASSWORD or "").strip():
+        return jsonify({"success": False, "error": "Ustaw BACKUP_RUNTIME_PASSWORD w środowisku (.env / system) i zrestartuj aplikację."}), 503
+    if not _backup_validate_password(password):
+        return jsonify({"success": False, "error": "Nieprawidłowe hasło akcji backup."}), 403
+    if not snapshot:
+        return jsonify({"success": False, "error": "Brak nazwy kopii do przywrócenia."}), 400
+    ok, msg = _backup_restore_snapshot(snapshot, note=note)
+    if not ok:
+        return jsonify({"success": False, "error": msg}), 400
+    log_event("backup_restore", f"snapshot={snapshot}")
+    return jsonify({"success": True, "message": msg})
+
+
+# Awaryjnie (bez panelu ustawien) - tylko na haslo backup.
+@app.route('/api/backups/emergency/list', methods=['GET'])
+def backups_emergency_list_api():
+    password = request.args.get("password", "")
+    if not str(BACKUP_RUNTIME_PASSWORD or "").strip():
+        return jsonify({"success": False, "error": "Hasło backup nie jest skonfigurowane na serwerze."}), 503
+    if not _backup_validate_password(password):
+        return jsonify({"success": False, "error": "Nieprawidłowe hasło."}), 403
+    return jsonify({"success": True, "items": _backup_list_releases()})
+
+
+@app.route('/api/backups/emergency/restore', methods=['POST'])
+def backups_emergency_restore_api():
+    payload = request.get_json(silent=True) or {}
+    password = payload.get("password", "")
+    snapshot = (payload.get("snapshot") or "").strip()
+    note = (payload.get("note") or "").strip()
+    if not str(BACKUP_RUNTIME_PASSWORD or "").strip():
+        return jsonify({"success": False, "error": "Hasło backup nie jest skonfigurowane na serwerze."}), 503
+    if not _backup_validate_password(password):
+        return jsonify({"success": False, "error": "Nieprawidłowe hasło."}), 403
+    if not snapshot:
+        return jsonify({"success": False, "error": "Brak nazwy kopii."}), 400
+    ok, msg = _backup_restore_snapshot(snapshot, note=note or "emergency_restore")
+    if not ok:
+        return jsonify({"success": False, "error": msg}), 400
+    return jsonify({"success": True, "message": msg})
 
 # Jawna obsługa plików statycznych (backup)
 @app.route('/static/<path:filename>')

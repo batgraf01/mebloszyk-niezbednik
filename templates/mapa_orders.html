@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mapa zamówień</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ef4444' d='M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z'/%3E%3C/svg%3E"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <style>
+      /* klastry: fiolet zamiast domyślnej zieleni */
+      .marker-cluster-small,
+      .marker-cluster-medium,
+      .marker-cluster-large {
+        background-color: rgb(89 6 85 / 60%) !important;
+      }
+      .marker-cluster-small div,
+      .marker-cluster-medium div,
+      .marker-cluster-large div {
+        background-color: rgb(89 6 85 / 85%) !important;
+        color: #fff !important;
+      }
+      @keyframes mapa-pin-bounce {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        35% {
+          transform: translateY(-12px);
+        }
+        65% {
+          transform: translateY(-4px);
+        }
+      }
+      .mapa-order-pin-wrap.mapa-pin-bounce {
+        animation: mapa-pin-bounce 0.42s ease;
+      }
+      @keyframes mapa-sidebar-pin-bounce {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        35% {
+          transform: translateY(-10px);
+        }
+        65% {
+          transform: translateY(-3px);
+        }
+      }
+      .order-row__pin-svg.mapa-sidebar-pin-bounce {
+        animation: mapa-sidebar-pin-bounce 0.42s ease;
+      }
+      :root {
+        --bg: #0f1720;
+        --card: #141d28;
+        --line: #2a3746;
+        --text: #e5ecf4;
+        --muted: #9cb0c5;
+        --accent: #2d7ff9;
+        --sidebar-w: min(400px, 46vw);
+      }
+      * { box-sizing: border-box; }
+      html, body { min-height: 100%; }
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      .topbar {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(15, 23, 32, 0.95);
+      }
+      .topbar-left {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .icon-link {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        flex-shrink: 0;
+      }
+      .icon-link:hover {
+        border-color: var(--accent);
+        color: var(--text);
+      }
+      .icon-link svg {
+        width: 18px;
+        height: 18px;
+        display: block;
+      }
+      h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+      .topbar-right { display: flex; align-items: center; gap: 8px; }
+      .btn-link { text-decoration: none; display: inline-flex; align-items: center; }
+      .outline {
+        background: transparent;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        padding: 8px 14px;
+        border-radius: 10px;
+        cursor: pointer;
+        font-size: 0.9rem;
+      }
+      .outline:hover { border-color: var(--accent); color: var(--text); }
+
+      .dashboard-wrap {
+        height: calc(100svh - 56px);
+        min-height: 380px;
+        max-height: calc(100dvh - 56px);
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+      }
+      .dashboard {
+        flex: 1;
+        display: flex;
+        flex-direction: row;
+        min-height: 0;
+        width: 100%;
+      }
+      .sidebar {
+        width: var(--sidebar-w);
+        flex-shrink: 0;
+        border-right: 1px solid var(--line);
+        background: #0c1218;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        height: 100%;
+      }
+      .sidebar__head { padding: 10px 12px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+      .sidebar__list { overflow-y: auto; flex: 1; padding: 8px; }
+
+      .order-item {
+        position: relative;
+        margin-bottom: 8px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--card);
+        overflow: hidden;
+      }
+      .order-item > summary.order-summary {
+        list-style: none;
+        width: 100%;
+        text-align: left;
+        padding: 10px 11px;
+        padding-right: 22px;
+        cursor: pointer;
+        color: inherit;
+        font: inherit;
+        display: grid;
+        grid-template-columns: 2rem 1fr minmax(56px, auto);
+        column-gap: 10px;
+        row-gap: 4px;
+        align-items: start;
+      }
+      .order-item > summary.order-summary::-webkit-details-marker { display: none; }
+      .order-row__lp {
+        grid-column: 1;
+        grid-row: 1 / -1;
+        align-self: center;
+        justify-self: center;
+        font-size: 16px;
+        line-height: 1;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        color: var(--muted);
+        user-select: none;
+        min-width: 1.5rem;
+        text-align: center;
+      }
+      .order-row__id-link {
+        font-size: 0.7rem;
+        font-weight: 500;
+        color: var(--accent);
+        text-decoration: none;
+        line-height: 1.15;
+        text-align: center;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .order-row__id-link:hover { text-decoration: underline; color: #5a9fff; }
+      .order-summary__main { display: contents; }
+      .order-summary__main > * { grid-column: 2; }
+      .order-row__date { grid-row: 1; font-size: 0.75rem; color: var(--muted); margin: 0; }
+      .order-row__title { font-weight: 600; margin-bottom: 4px; word-break: break-word; }
+      .order-row__addr-row { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+      .order-row__addr { flex: 1; min-width: 0; }
+      .order-row__addr-text {
+        width: 100%;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        padding: 6px 8px;
+        font-size: 0.9rem;
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.02);
+        white-space: normal;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        line-height: 1.35;
+        cursor: text;
+      }
+      .order-row__addr-text:hover {
+        border-color: rgba(45, 127, 249, 0.35);
+      }
+      .order-row__addr-input {
+        width: 100%;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: #0f1620;
+        color: var(--text);
+        padding: 6px 8px;
+        font-size: 0.9rem;
+      }
+      .order-row__addr-input.is-readonly { opacity: 0.95; }
+      .order-row__addr-btn {
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--muted);
+        padding: 6px 10px;
+        font-size: 0.85rem;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .order-row__addr-btn:hover { border-color: var(--accent); color: var(--text); }
+      .order-row__pin-col {
+        grid-column: 3;
+        grid-row: 1 / -1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 4px;
+        min-width: 58px;
+        padding-top: 1px;
+      }
+      .order-row__pin-svg {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 0;
+        flex-shrink: 0;
+      }
+      .order-row__pin-svg svg {
+        width: 26px;
+        height: 31px;
+        display: block;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+      }
+      .order-row__pin-svg--ok { color: #22c55e; }
+      .order-row__pin-svg--no { color: #ef4444; }
+      .dist-chrosla { color: #d7cc36; font-size: 13px; font-weight: 400; display: inline-flex; gap: 6px; }
+      .dist-chrosla__km { font-weight: 700; }
+
+      .order-item--inactive {
+        opacity: 0.78;
+        filter: saturate(0.55);
+      }
+      .order-item--inactive .order-summary,
+      .order-item--inactive .order-panel {
+        color: #b8c5d1;
+      }
+      .order-row__prefs {
+        grid-column: 2;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(42, 55, 70, 0.65);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: stretch;
+      }
+      .order-pref-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        color: var(--muted);
+        user-select: none;
+      }
+      .order-pref-toggle input {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+      .order-pref-note {
+        width: 100%;
+        min-height: 52px;
+        resize: vertical;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: #0f1620;
+        color: var(--text);
+        padding: 8px 10px;
+        font-size: 0.85rem;
+        line-height: 1.35;
+        font-family: inherit;
+      }
+      .order-pref-note::placeholder {
+        color: #6b7c8f;
+      }
+      .order-pref-save {
+        align-self: flex-start;
+        padding: 6px 12px;
+        font-size: 0.82rem;
+      }
+
+      .order-panel { padding: 10px 12px; border-top: 1px solid var(--line); background: #070a0f; }
+      .muted { color: var(--muted); }
+      table.meta { width: 100%; border-collapse: collapse; }
+      table.meta td { padding: 4px 0; vertical-align: top; }
+      table.meta td:first-child { color: var(--muted); width: 92px; }
+      ul.prod { margin: 8px 0 0; padding-left: 18px; }
+      ul.prod li { margin: 4px 0; }
+
+      .map-wrap { position: relative; flex: 1; min-height: 0; }
+      #map { position: absolute; inset: 0; }
+      .map-loading-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 23, 32, 0.92);
+        z-index: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: opacity 0.2s ease;
+      }
+      .map-loading-overlay.is-done {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .map-loading-overlay__inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      .map-loading-spinner {
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        border: 3px solid rgba(255, 255, 255, 0.18);
+        border-top-color: rgba(255, 255, 255, 0.85);
+        animation: mapa-spin 0.9s linear infinite;
+      }
+      @keyframes mapa-spin { to { transform: rotate(360deg); } }
+      .map-loading-overlay__text { color: var(--muted); margin: 0; }
+
+      .map-tools {
+        position: absolute;
+        right: 10px;
+        top: 10px;
+        z-index: 650;
+        display: inline-flex;
+        gap: 8px;
+        background: rgba(12, 18, 24, 0.72);
+        border: 1px solid rgba(42, 55, 70, 0.9);
+        border-radius: 12px;
+        padding: 6px;
+        backdrop-filter: blur(6px);
+      }
+      .map-toggle {
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--muted);
+        padding: 7px 10px;
+        border-radius: 10px;
+        cursor: pointer;
+        font-size: 0.85rem;
+      }
+      .map-toggle:hover { border-color: var(--accent); color: var(--text); }
+      .map-toggle.is-active { border-color: var(--accent); color: #fff; background: rgba(45, 127, 249, 0.14); }
+
+      .map-warning {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        z-index: 660;
+        background: rgba(42, 15, 22, 0.92);
+        border: 1px solid #6b1f2a;
+        color: #fecaca;
+        border-radius: 12px;
+        padding: 10px 12px;
+        display: none;
+        gap: 8px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .map-warning.is-visible { display: flex; }
+      .map-warning__row { display: inline-flex; gap: 8px; }
+
+      .map-osm-fallback {
+        position: absolute;
+        inset: 0;
+        border: 0;
+        display: none;
+        z-index: 640;
+      }
+      .map-osm-fallback.is-visible { display: block; }
+
+      .err-box {
+        padding: 12px 16px;
+        border-top: 1px solid #6b1f2a;
+        border-bottom: 1px solid #6b1f2a;
+        background: #2a0f16;
+        color: #fecaca;
+      }
+
+      @media (max-width: 900px) {
+        .sidebar { width: min(420px, 100%); }
+        .dashboard { flex-direction: column; }
+        .map-wrap { min-height: 45vh; height: 45vh; flex: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-left">
+        <a class="icon-link" href="https://mebloszyk.pl/" title="Powrót do Niezbędnika" aria-label="Powrót do Niezbędnika">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 18l-6-6 6-6"></path>
+          </svg>
+        </a>
+        <a class="icon-link" href="https://mebloszyk.pl/" title="Strona główna Niezbędnika" aria-label="Strona główna Niezbędnika">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 10.5L12 3l9 7.5"></path>
+            <path d="M5.5 10v10h13V10"></path>
+          </svg>
+        </a>
+        <h1>Mapa zamówień</h1>
+      </div>
+      <div class="topbar-right">
+        <span class="muted">
+          {% if orders_source == 'cache' %}
+            dane: cache
+          {% elif orders_source == 'stale' %}
+            dane: cache awaryjny
+          {% else %}
+            dane: API
+          {% endif %}
+        </span>
+        <a class="btn-link outline" href="{{ url_for('mapa_orders', refresh=1) }}">Odśwież</a>
+        <a class="btn-link outline" href="{{ url_for('index') }}">Wróć do Niezbędnika</a>
+      </div>
+    </header>
+
+    {% if error %}
+      <div class="err-box">{{ error }}</div>
+    {% endif %}
+
+    {% if orders %}
+      <div class="dashboard-wrap">
+        <div class="dashboard">
+          <aside class="sidebar" aria-label="Lista zamówień">
+            <div class="sidebar__head">
+              <button type="button" class="outline" id="btn-widok-100">widok 100%</button>
+            </div>
+            <div class="sidebar__list">
+              {% for o in orders %}
+                <details class="order-item{% if not o.get('map_active', True) %} order-item--inactive{% endif %}" data-order-id="{{ o.order_id }}" data-has-map="{{ '1' if o.geocode_ok else '0' }}" data-map-active="{{ '1' if o.get('map_active', True) else '0' }}" id="list-order-{{ o.order_id }}">
+                  <summary class="order-summary">
+                    <span class="order-row__lp" aria-hidden="true">{{ loop.index }}</span>
+                    <span class="order-summary__main">
+                      <div class="order-row__date">{{ o.date_add }}</div>
+                      <div class="order-row__title">{{ o.delivery_fullname }}</div>
+                      <div class="order-row__addr-row">
+                        <div class="order-row__addr">
+                          <div class="order-row__addr-text" data-addr-text title="{{ o.address }}">{{ o.address }}</div>
+                          <input class="order-row__addr-input" type="text" value="{{ o.address }}" maxlength="255" data-addr-input hidden />
+                        </div>
+                        <button type="button" class="order-row__addr-btn" data-addr-save hidden>zapisz</button>
+                        <button type="button" class="order-row__addr-btn" data-addr-refresh title="Zapisz adres i odśwież punkt na mapie (geokod)">↻</button>
+                      </div>
+                      <span class="dist-chrosla" data-distance-main {% if o.distance_km is none %}hidden{% endif %}>
+                        <span class="dist-chrosla__km" data-distance-km-main>{% if o.distance_km is not none %}{{ o.distance_km }}{% endif %}</span> km
+                      </span>
+                      <div class="order-row__prefs" onclick="event.stopPropagation()">
+                        <label class="order-pref-toggle">
+                          <input type="checkbox" data-order-pref-active {% if o.get('map_active', True) %}checked{% endif %} />
+                          <span>Aktywne na mapie</span>
+                        </label>
+                        <textarea class="order-pref-note" data-map-note rows="2" maxlength="600" placeholder="Uwaga — np. dostawa 25–28.04, odbiór osobisty…">{{ o.get('map_note', '') }}</textarea>
+                        <button type="button" class="order-pref-save outline" data-map-pref-save>Zapisz uwagi</button>
+                      </div>
+                    </span>
+                    <div class="order-row__pin-col">
+                      <a class="order-row__id-link" href="{{ sellrocket_order_base }}{{ o.order_id }}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">#{{ o.order_id }}</a>
+                      <span class="order-row__pin-svg {% if o.geocode_ok %}order-row__pin-svg--ok{% else %}order-row__pin-svg--no{% endif %}" role="img" aria-label="{% if o.geocode_ok %}Na mapie{% else %}Brak pozycji na mapie{% endif %}">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
+                        </svg>
+                      </span>
+                    </div>
+                  </summary>
+                  <div class="order-panel">
+                    <p style="margin:0 0 8px;">
+                      <strong>#{{ o.order_id }}</strong>
+                      <span class="muted"> — status: {{ o.order_status_id }}</span>
+                      <span class="muted" data-panel-map-state>{% if o.geocode_ok %} · na mapie{% else %} · bez pozycji na mapie{% endif %}</span>
+                    </p>
+                    <table class="meta">
+                      <tr><td>Data</td><td>{{ o.date_add }}</td></tr>
+                      <tr data-distance-row {% if o.distance_km is none %}hidden{% endif %}><td>Dystans</td><td><span class="dist-chrosla"><span class="dist-chrosla__km" data-distance-km-panel>{% if o.distance_km is not none %}{{ o.distance_km }}{% endif %}</span> km</span></td></tr>
+                      <tr><td>Dostawa</td><td>{{ o.delivery_fullname }}</td></tr>
+                      <tr><td>E-mail</td><td>{{ o.email }}</td></tr>
+                      <tr><td>Telefon</td><td>{{ o.phone }}</td></tr>
+                      <tr><td>Adres</td><td data-panel-address>{{ o.address }}</td></tr>
+                    </table>
+                    <p class="muted" style="margin:10px 0 4px;">Produkty</p>
+                    {% if o.products %}
+                      <ul class="prod">
+                        {% for p in o.products %}
+                          <li>{{ p.qty }}× {{ p.name }}{% if p.sku %} <span class="muted">({{ p.sku }})</span>{% endif %}</li>
+                        {% endfor %}
+                      </ul>
+                    {% else %}
+                      <p class="muted">(brak pozycji)</p>
+                    {% endif %}
+                  </div>
+                </details>
+              {% endfor %}
+            </div>
+          </aside>
+          <section class="map-wrap" aria-label="Mapa zamówień">
+            <div id="map-loading-overlay" class="map-loading-overlay" role="status" aria-live="polite" aria-busy="true">
+              <div class="map-loading-overlay__inner">
+                <div class="map-loading-spinner" aria-hidden="true"></div>
+                <p class="map-loading-overlay__text" id="map-loading-text">Ładowanie mapy…</p>
+              </div>
+            </div>
+            <div id="map" role="application"></div>
+            <iframe
+              id="map-osm-fallback"
+              class="map-osm-fallback"
+              title="Mapa (OpenStreetMap — widok awaryjny)"
+              loading="lazy"
+              referrerpolicy="no-referrer-when-downgrade"
+            ></iframe>
+            <div class="map-tools" aria-label="Przełącznik widoku mapy">
+              <button type="button" class="map-toggle is-active" data-style="normal">normalny</button>
+              <button type="button" class="map-toggle" data-style="lekki">lekki</button>
+            </div>
+            <div class="map-warning" id="map-warning">
+              <div id="map-warning-text">Nie udało się załadować kafelków mapy.</div>
+              <div class="map-warning__row">
+                <button type="button" class="map-toggle" data-style="normal">Spróbuj normalny</button>
+                <button type="button" class="map-toggle" data-style="lekki">Spróbuj lekki</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    {% endif %}
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script>
+      (function () {
+        var markers = {{ markers|tojson }};
+        var CHROSLA_CENTER = [{{ chrosla_lat }}, {{ chrosla_lng }}];
+        var ZONE_KM = {{ chrosla_radius_km }};
+        var MAP_INITIAL_CENTER = CHROSLA_CENTER;
+        var MAP_INITIAL_ZOOM = 6;
+        var mapEl = document.getElementById("map");
+        if (!mapEl) return;
+
+        var map = L.map("map", { zoomControl: true, preferCanvas: true }).setView(MAP_INITIAL_CENTER, MAP_INITIAL_ZOOM);
+
+        var mapLoadingEl = document.getElementById("map-loading-overlay");
+        var mapLoadingTextEl = document.getElementById("map-loading-text");
+        function setMapLoadingText(text) {
+          if (mapLoadingTextEl) mapLoadingTextEl.textContent = text || "Ładowanie mapy…";
+        }
+        function showMapLoadingOverlay(text) {
+          if (!mapLoadingEl) return;
+          setMapLoadingText(text || "Ładowanie mapy…");
+          mapLoadingEl.classList.remove("is-done");
+          mapLoadingEl.setAttribute("aria-busy", "true");
+        }
+        function hideMapLoadingOverlay() {
+          if (!mapLoadingEl) return;
+          mapLoadingEl.classList.add("is-done");
+          mapLoadingEl.setAttribute("aria-busy", "false");
+        }
+        showMapLoadingOverlay("Ładowanie mapy…");
+
+        var tilesNormal = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: "&copy; OpenStreetMap",
+        });
+        var tilesLekki = L.tileLayer("https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+          maxZoom: 20,
+          attribution: "&copy; OpenStreetMap & CARTO",
+        });
+        var iframeEl = document.getElementById("map-osm-fallback");
+        var warningEl = document.getElementById("map-warning");
+        var warningTextEl = document.getElementById("map-warning-text");
+        var activeTiles = tilesNormal;
+
+        function setWarningVisible(on, text) {
+          if (!warningEl) return;
+          if (on) {
+            if (warningTextEl && text) warningTextEl.textContent = text;
+            warningEl.classList.add("is-visible");
+          } else {
+            warningEl.classList.remove("is-visible");
+          }
+        }
+
+        function osmEmbedUrl() {
+          // OpenStreetMap embed z szerokim bbox dla Polski
+          return "https://www.openstreetmap.org/export/embed.html?bbox=14.07%2C49.00%2C24.20%2C54.90&layer=mapnik";
+        }
+
+        // Uwaga: iframe fallback jest gotowy do użycia, ale domyślnie tylko pokazujemy ostrzeżenie.
+
+        function switchTiles(style) {
+          style = style === "lekki" ? "lekki" : "normalny";
+          var next = style === "lekki" ? tilesLekki : tilesNormal;
+          if (activeTiles === next) return;
+          try { map.removeLayer(activeTiles); } catch (e) {}
+          activeTiles = next;
+          activeTiles.addTo(map);
+          setWarningVisible(false);
+          if (iframeEl) iframeEl.classList.remove("is-visible");
+          document.querySelectorAll(".map-tools .map-toggle").forEach(function (btn) {
+            btn.classList.toggle("is-active", btn.getAttribute("data-style") === style);
+          });
+        }
+
+        document.querySelectorAll(".map-toggle[data-style]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            var s = btn.getAttribute("data-style");
+            switchTiles(s);
+          });
+        });
+
+        function attachTileError(layer) {
+          layer.on("tileerror", function () {
+            setWarningVisible(true, "Nie udało się załadować kafelków mapy.");
+          });
+          layer.on("load", function () {
+            hideMapLoadingOverlay();
+          });
+        }
+        attachTileError(tilesNormal);
+        attachTileError(tilesLekki);
+
+        tilesNormal.addTo(map);
+
+        var cluster = L.markerClusterGroup({ chunkedLoading: true, showCoverageOnHover: false, maxClusterRadius: 50 });
+        var byId = {};
+
+        var MAP_PIN_W = 36;
+        var MAP_PIN_H = 42;
+        var mapFocusedId = null;
+        var listFocusedId = null;
+
+        function makeOrderDivIcon(mode) {
+          mode = mode || "default";
+          var cls = "mapa-order-pin-wrap mapa-order-pin--" + mode;
+          return L.divIcon({
+            className: "",
+            html:
+              '<div class="' +
+              cls +
+              '">' +
+              '<svg class="mapa-order-pin__shape" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+              '<path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/>' +
+              "</svg>" +
+              "</div>",
+            iconSize: [MAP_PIN_W, MAP_PIN_H],
+            iconAnchor: [MAP_PIN_W / 2, MAP_PIN_H - 2],
+            popupAnchor: [0, -(MAP_PIN_H - 4)],
+          });
+        }
+
+        function markerModeForId(orderId) {
+          var sid = String(orderId || "");
+          if (mapFocusedId != null && String(mapFocusedId) === sid) return "map";
+          if (listFocusedId != null && String(listFocusedId) === sid) return "list";
+          return "default";
+        }
+
+        function markerVisualMode(orderId) {
+          var m = byId[String(orderId)];
+          var base = markerModeForId(orderId);
+          if (m && m._mapaInactive) return "in-" + base;
+          return base;
+        }
+
+        function refreshMarkerIcons() {
+          Object.keys(byId).forEach(function (k) {
+            var m = byId[k];
+            m.setIcon(makeOrderDivIcon(markerVisualMode(k)));
+          });
+        }
+
+        function bounceMarkerIcon(marker) {
+          if (!marker || !marker._icon) return;
+          var wrap = marker._icon.querySelector(".mapa-order-pin-wrap");
+          if (!wrap) return;
+          wrap.classList.remove("mapa-pin-bounce");
+          void wrap.offsetWidth;
+          wrap.classList.add("mapa-pin-bounce");
+        }
+
+        function bounceSidebarPin(orderItemEl) {
+          if (!orderItemEl) return;
+          var pin = orderItemEl.querySelector(".order-row__pin-svg");
+          if (!pin) return;
+          pin.classList.remove("mapa-sidebar-pin-bounce");
+          void pin.offsetWidth;
+          pin.classList.add("mapa-sidebar-pin-bounce");
+        }
+
+        function closeOtherOrderDetails(keepEl) {
+          document.querySelectorAll(".order-item[open]").forEach(function (el) {
+            if (el !== keepEl) el.open = false;
+          });
+        }
+
+        function attachMarkerMapClick(mk) {
+          mk.on("click", function (ev) {
+            L.DomEvent.stopPropagation(ev);
+            var oid = mk._mapaOrderId;
+            mapFocusedId = oid;
+            listFocusedId = oid;
+            var item = document.getElementById("list-order-" + oid);
+            if (item) {
+              item._mapaOpenFromMap = true;
+              item.open = true;
+              try {
+                item.scrollIntoView({ block: "nearest", behavior: "smooth" });
+              } catch (e) {}
+            } else {
+              refreshMarkerIcons();
+              bounceMarkerIcon(mk);
+              mk.openPopup();
+            }
+          });
+        }
+
+        var styleTag = document.createElement("style");
+        styleTag.textContent =
+          ".mapa-order-pin-wrap{width:" +
+          MAP_PIN_W +
+          "px;height:" +
+          MAP_PIN_H +
+          "px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.35));}" +
+          ".mapa-order-pin--default{color:#2d7ff9;}" +
+          ".mapa-order-pin--list{color:#22c55e;}" +
+          ".mapa-order-pin--map{color:#ef4444;}" +
+          ".mapa-order-pin--in-default,.mapa-order-pin--in-list,.mapa-order-pin--in-map{color:#6b7280;}" +
+          ".mapa-order-pin__shape{display:block;width:" +
+          MAP_PIN_W +
+          "px;height:" +
+          MAP_PIN_H +
+          "px;}";
+        document.head.appendChild(styleTag);
+
+        (markers || []).forEach(function (m) {
+          if (m.lat == null || m.lng == null) return;
+          var inactive = m.map_active === false;
+          var mk = L.marker([m.lat, m.lng], {
+            icon: makeOrderDivIcon(inactive ? "in-default" : "default"),
+          });
+          mk._mapaOrderId = String(m.order_id || "");
+          mk._mapaInactive = inactive;
+          mk.bindPopup(m.popup || "");
+          attachMarkerMapClick(mk);
+          cluster.addLayer(mk);
+          byId[mk._mapaOrderId] = mk;
+        });
+        map.addLayer(cluster);
+
+        var circle = L.circle(CHROSLA_CENTER, { radius: ZONE_KM * 1000, color: "#2d7ff9", weight: 1, fillOpacity: 0.04 });
+        circle.addTo(map);
+
+        function focusOrderOnMap(oid, hasMap) {
+          if (hasMap !== "1") return;
+          var mk = byId[String(oid)];
+          if (!mk) return;
+          var ll = mk.getLatLng();
+          map.panTo(ll, { animate: true, duration: 0.45, easeLinearity: 0.28 });
+          mk.openPopup();
+        }
+
+        function saveMapPrefs(orderId, mapActive, note) {
+          return fetch("/api/order-map-prefs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              order_id: orderId,
+              map_active: !!mapActive,
+              note: note || "",
+            }),
+          }).then(function (resp) {
+            return resp.json().then(function (data) {
+              if (!resp.ok || !data || data.ok !== true) {
+                throw new Error((data && data.error) || "Nie udało się zapisać ustawień mapy.");
+              }
+              return data;
+            });
+          });
+        }
+
+        function saveAddressOverride(orderId, address) {
+          return fetch("/api/order-address-override", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_id: orderId, address: address }),
+          }).then(function (resp) {
+            return resp.json().then(function (data) {
+              if (!resp.ok || !data || data.ok !== true) {
+                throw new Error((data && data.error) || "Nie udało się zapisać adresu.");
+              }
+              return data;
+            });
+          });
+        }
+
+        function recalcOrderAddress(orderId) {
+          return fetch("/api/order-address-recalc", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_id: orderId }),
+          }).then(function (resp) {
+            return resp.json().then(function (data) {
+              if (!resp.ok || !data || data.ok !== true) {
+                throw new Error((data && data.error) || "Nie udało się odświeżyć punktu mapy.");
+              }
+              return data;
+            });
+          });
+        }
+
+        function upsertOrderMarkerFromRefresh(data, opts) {
+          opts = opts || {};
+          var oid = String(data.order_id || "");
+          if (!oid) return;
+          var mk = byId[oid] || null;
+          if (data.geocode_ok && data.lat != null && data.lng != null) {
+            if (!mk) {
+              var ini = data.map_active === false ? "in-default" : "default";
+              mk = L.marker([data.lat, data.lng], { icon: makeOrderDivIcon(ini) });
+              mk._mapaOrderId = oid;
+              mk._mapaInactive = data.map_active === false;
+              mk.bindPopup(data.popup || "");
+              attachMarkerMapClick(mk);
+              cluster.addLayer(mk);
+              byId[oid] = mk;
+            } else {
+              mk.setLatLng([data.lat, data.lng]);
+              if (data.map_active !== undefined) mk._mapaInactive = data.map_active === false;
+              mk.setPopupContent(data.popup || "");
+              mk.setIcon(makeOrderDivIcon(markerVisualMode(oid)));
+            }
+            if (opts.focus) {
+              map.panTo(mk.getLatLng(), { animate: true, duration: 0.45, easeLinearity: 0.28 });
+              refreshMarkerIcons();
+              mk.openPopup();
+            }
+          } else if (mk) {
+            cluster.removeLayer(mk);
+            delete byId[oid];
+            if (String(mapFocusedId) === oid) mapFocusedId = null;
+            if (String(listFocusedId) === oid) listFocusedId = null;
+            refreshMarkerIcons();
+            if (opts.focus) {
+              map.closePopup();
+            }
+          }
+        }
+
+        function applyOrderRefreshToCard(item, data) {
+          var addrText = item.querySelector("[data-addr-text]");
+          var addrInput = item.querySelector("[data-addr-input]");
+          var mapPinSvg = item.querySelector(".order-row__pin-svg");
+          var distMain = item.querySelector("[data-distance-main]");
+          var distKmMain = item.querySelector("[data-distance-km-main]");
+          var panelState = item.querySelector("[data-panel-map-state]");
+          var panelAddr = item.querySelector("[data-panel-address]");
+          var panelDistRow = item.querySelector("[data-distance-row]");
+          var panelDistKm = item.querySelector("[data-distance-km-panel]");
+
+          var hasMap = data.geocode_ok ? "1" : "0";
+          item.setAttribute("data-has-map", hasMap);
+          if (addrText) {
+            addrText.textContent = data.address || "(brak adresu)";
+            addrText.setAttribute("title", data.address || "");
+          }
+          if (addrInput) addrInput.value = data.address || "(brak adresu)";
+          if (panelAddr) panelAddr.textContent = data.address || "—";
+          if (mapPinSvg) {
+            mapPinSvg.classList.toggle("order-row__pin-svg--ok", !!data.geocode_ok);
+            mapPinSvg.classList.toggle("order-row__pin-svg--no", !data.geocode_ok);
+            mapPinSvg.setAttribute("aria-label", data.geocode_ok ? "Na mapie" : "Brak pozycji na mapie");
+          }
+          if (panelState) panelState.textContent = data.geocode_ok ? " · na mapie" : " · bez pozycji na mapie";
+          if (data.distance_km != null) {
+            if (distMain) distMain.hidden = false;
+            if (distKmMain) distKmMain.textContent = String(data.distance_km);
+            if (panelDistRow) panelDistRow.hidden = false;
+            if (panelDistKm) panelDistKm.textContent = String(data.distance_km);
+          } else {
+            if (distMain) distMain.hidden = true;
+            if (panelDistRow) panelDistRow.hidden = true;
+          }
+          if (data.map_active !== undefined) {
+            item.dataset.mapActive = data.map_active ? "1" : "0";
+            item.classList.toggle("order-item--inactive", !data.map_active);
+            var cbP = item.querySelector("[data-order-pref-active]");
+            if (cbP) cbP.checked = !!data.map_active;
+            var oidM = String(item.getAttribute("data-order-id"));
+            var mkP = byId[oidM];
+            if (mkP) mkP._mapaInactive = !data.map_active;
+          }
+          if (data.map_note !== undefined) {
+            var taP = item.querySelector("[data-map-note]");
+            if (taP) taP.value = data.map_note || "";
+          }
+          if (data.popup) {
+            var mkPop = byId[String(item.getAttribute("data-order-id"))];
+            if (mkPop) mkPop.setPopupContent(data.popup);
+          }
+          if (data.map_active !== undefined) refreshMarkerIcons();
+        }
+
+        document.querySelectorAll(".order-item").forEach(function (item) {
+          var addrText = item.querySelector("[data-addr-text]");
+          var addrInput = item.querySelector("[data-addr-input]");
+          var btnAddrSave = item.querySelector("[data-addr-save]");
+          var btnAddrRefresh = item.querySelector("[data-addr-refresh]");
+          var cbMapActive = item.querySelector("[data-order-pref-active]");
+          var taMapNote = item.querySelector("[data-map-note]");
+          var btnMapPrefSave = item.querySelector("[data-map-pref-save]");
+          var savedAddressValue = (addrInput && addrInput.value ? addrInput.value : "").trim();
+
+          function postMapPrefs() {
+            var oid = item.getAttribute("data-order-id");
+            var active = cbMapActive ? cbMapActive.checked : true;
+            var note = taMapNote ? taMapNote.value.trim() : "";
+            if (btnMapPrefSave) btnMapPrefSave.disabled = true;
+            return saveMapPrefs(oid, active, note)
+              .then(function (d) {
+                item.dataset.mapActive = d.map_active ? "1" : "0";
+                item.classList.toggle("order-item--inactive", !d.map_active);
+                var mkp = byId[String(oid)];
+                if (mkp) {
+                  mkp._mapaInactive = !d.map_active;
+                  if (d.popup) mkp.setPopupContent(d.popup);
+                  refreshMarkerIcons();
+                }
+              })
+              .catch(function (err) {
+                window.alert(err && err.message ? err.message : "Błąd zapisu mapy.");
+              })
+              .finally(function () {
+                if (btnMapPrefSave) btnMapPrefSave.disabled = false;
+              });
+          }
+          if (cbMapActive) {
+            cbMapActive.addEventListener("change", function (ev) {
+              ev.stopPropagation();
+              postMapPrefs();
+            });
+          }
+          if (btnMapPrefSave && taMapNote) {
+            btnMapPrefSave.addEventListener("click", function (ev) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              postMapPrefs();
+            });
+          }
+
+          function setEditorBusy(isBusy) {
+            if (btnAddrSave) btnAddrSave.disabled = isBusy;
+            if (btnAddrRefresh) btnAddrRefresh.disabled = isBusy;
+            if (addrInput) addrInput.disabled = isBusy;
+            if (btnAddrRefresh) btnAddrRefresh.textContent = isBusy ? "⟳" : "↻";
+          }
+          function enterAddrEditor() {
+            if (!addrInput) return;
+            if (addrText) addrText.hidden = true;
+            addrInput.hidden = false;
+            if (btnAddrSave) btnAddrSave.hidden = false;
+            addrInput.focus();
+            addrInput.select();
+          }
+          function closeAddrEditor(resetValue) {
+            if (!addrInput) return;
+            if (resetValue) addrInput.value = savedAddressValue;
+            if (addrText) addrText.hidden = false;
+            addrInput.hidden = true;
+            if (btnAddrSave) btnAddrSave.hidden = true;
+          }
+
+          if (addrText) {
+            addrText.addEventListener("click", function (ev) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              enterAddrEditor();
+            });
+          }
+          if (addrInput) {
+            addrInput.addEventListener("keydown", function (ev) {
+              if (ev.key === "Escape") {
+                ev.preventDefault();
+                ev.stopPropagation();
+                closeAddrEditor(true);
+              } else if (ev.key === "Enter" && btnAddrSave && !btnAddrSave.disabled) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                btnAddrSave.click();
+              }
+            });
+          }
+
+          if (btnAddrSave && addrInput) {
+            btnAddrSave.addEventListener("click", function (ev) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              var oid = item.getAttribute("data-order-id");
+              var nextAddr = (addrInput.value || "").trim();
+              setEditorBusy(true);
+              saveAddressOverride(oid, nextAddr)
+                .then(function () {
+                  savedAddressValue = nextAddr || "(brak adresu)";
+                  addrInput.value = savedAddressValue;
+                  closeAddrEditor();
+                })
+                .catch(function (err) {
+                  window.alert(err && err.message ? err.message : "Błąd zapisu adresu.");
+                })
+                .finally(function () {
+                  setEditorBusy(false);
+                });
+            });
+          }
+
+          if (btnAddrRefresh && addrInput) {
+            btnAddrRefresh.addEventListener("click", function (ev) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              var oid = item.getAttribute("data-order-id");
+              var addr = (addrInput.value || "").trim();
+              setEditorBusy(true);
+              saveAddressOverride(oid, addr)
+                .then(function () { return recalcOrderAddress(oid); })
+                .then(function (data) {
+                  savedAddressValue = (data.address || addr || "(brak adresu)");
+                  applyOrderRefreshToCard(item, data);
+                  upsertOrderMarkerFromRefresh(data, { focus: true });
+                  closeAddrEditor(false);
+                })
+                .catch(function (err) {
+                  window.alert(err && err.message ? err.message : "Błąd odświeżenia adresu.");
+                })
+                .finally(function () {
+                  setEditorBusy(false);
+                });
+            });
+          }
+
+          item.addEventListener("toggle", function () {
+            var oid = item.getAttribute("data-order-id");
+            if (item.open) {
+              closeOtherOrderDetails(item);
+              if (!item._mapaOpenFromMap) {
+                mapFocusedId = null;
+              } else {
+                item._mapaOpenFromMap = false;
+              }
+              listFocusedId = oid;
+              refreshMarkerIcons();
+              focusOrderOnMap(oid, item.getAttribute("data-has-map"));
+              var mkList = byId[String(oid)];
+              if (mkList) bounceMarkerIcon(mkList);
+              bounceSidebarPin(item);
+            } else {
+              if (String(listFocusedId) === String(oid)) listFocusedId = null;
+              if (String(mapFocusedId) === String(oid)) mapFocusedId = null;
+              refreshMarkerIcons();
+            }
+          });
+        });
+
+        var btnWidok100 = document.getElementById("btn-widok-100");
+        if (btnWidok100) {
+          btnWidok100.addEventListener("click", function () {
+            if (iframeEl && iframeEl.classList.contains("is-visible")) {
+              iframeEl.src = osmEmbedUrl();
+              return;
+            }
+            map.closePopup();
+            map.invalidateSize();
+            map.flyTo(MAP_INITIAL_CENTER, MAP_INITIAL_ZOOM, { duration: 0.45 });
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>
+

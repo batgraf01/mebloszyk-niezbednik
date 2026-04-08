@@ -31,7 +31,18 @@
   .user-action-btn.action-delete { color: #dc3545; }
   .user-action-btn.action-rename { color: #0f6cbd; }
   .user-action-btn.action-toggle { color: #7b2cbf; }
+  .backup-note {
+    font-size: 12px;
+    color: #6b7280;
+  }
+  #settings-root.settings-locked {
+    pointer-events: none;
+    user-select: none;
+    opacity: 0.7;
+    filter: blur(1px);
+  }
 </style>
+<div id="settings-root" class="{% if settings_access_required and not settings_access_granted %}settings-locked{% endif %}">
 <div class="row">
   <div class="col-12 col-lg-6 mb-4">
     <div class="card">
@@ -139,6 +150,57 @@
 {% endif %}
 
 {% if session.get('role') == 'admin' %}
+<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="mb-3">Kopie zapasowe i przywracanie</h2>
+        <div class="row g-3 align-items-end mb-3">
+          <div class="col-12 col-lg-4">
+            <label for="backup-action-password" class="form-label">Hasło akcji backup</label>
+            <input type="password" id="backup-action-password" class="form-control" placeholder="Wpisz hasło">
+          </div>
+          <div class="col-12 col-lg-4">
+            <label for="backup-note-input" class="form-label">Opis zmiany (opcjonalnie)</label>
+            <input type="text" id="backup-note-input" class="form-control" placeholder="np. Kontakty v2">
+          </div>
+          <div class="col-12 col-lg-4 d-flex gap-2">
+            <button type="button" class="btn btn-primary" id="btn-backup-create">Utwórz kopię ręcznie</button>
+            <button type="button" class="btn btn-outline-secondary" id="btn-backup-refresh">Odśwież listę</button>
+          </div>
+        </div>
+
+        <div id="backup-message" class="mb-3"></div>
+        <div class="backup-note mb-2">
+          Ustaw hasło w środowisku: <code>BACKUP_RUNTIME_PASSWORD=...</code> (bez tego akcje backup są zablokowane).
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-hover">
+            <thead>
+              <tr>
+                <th>Nazwa kopii</th>
+                <th>Utworzono (UTC)</th>
+                <th>Opis</th>
+                <th>Pliki</th>
+                <th>Rozmiar</th>
+                <th>Akcja</th>
+              </tr>
+            </thead>
+            <tbody id="backups-table-body">
+              <tr><td colspan="6" class="text-center">Ładowanie...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+</div>
+
+{% if session.get('role') == 'admin' %}
 <div class="modal fade" id="renameUserModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -202,6 +264,61 @@
   </div>
 </div>
 
+{% if session.get('role') == 'admin' %}
+<div class="modal fade" id="restoreBackupModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Potwierdź przywrócenie kopii</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">
+          Przywracasz kopię: <strong id="restore-snapshot-name"></strong>
+        </p>
+        <p class="text-muted small">
+          Wpisz dokładnie nazwę kopii, aby potwierdzić.
+        </p>
+        <div class="mb-3">
+          <label for="restore-snapshot-confirm-input" class="form-label">Nazwa kopii</label>
+          <input type="text" class="form-control" id="restore-snapshot-confirm-input" placeholder="np. R-20260403-120000__20260403_120000">
+        </div>
+        <div id="restore-backup-message"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+        <button type="button" class="btn btn-danger" id="confirm-restore-backup-btn">Przywróć kopię</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if settings_access_required %}
+<div class="modal fade" id="settingsAccessModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Hasło do Ustawień</h5>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">Podaj hasło dostępu do sekcji Ustawienia.</p>
+        <p class="text-muted small mb-3">Dostęp będzie ważny przez {{ settings_access_ttl_minutes }} min.</p>
+        <div class="mb-3">
+          <label for="settings-access-password" class="form-label">Hasło</label>
+          <input type="password" class="form-control" id="settings-access-password" autocomplete="current-password">
+        </div>
+        <div id="settings-access-message"></div>
+      </div>
+      <div class="modal-footer">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">Wróć</a>
+        <button type="button" class="btn btn-primary" id="settings-access-submit">Odblokuj</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block extra_js %}
@@ -210,6 +327,24 @@
   const userId = '{{ session.get("user_id") }}';
   const userRole = '{{ session.get("role", "user") }}';
   const mustChangePassword = {{ 'true' if session.get('must_change_password') else 'false' }};
+  const settingsAccessRequired = {{ 'true' if settings_access_required else 'false' }};
+  const settingsAccessGranted = {{ 'true' if settings_access_granted else 'false' }};
+  let isSettingsUnlocked = !settingsAccessRequired || settingsAccessGranted;
+  const settingsRoot = document.getElementById('settings-root');
+  const settingsAccessModalEl = document.getElementById('settingsAccessModal');
+  const settingsAccessModal = (settingsAccessModalEl && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(settingsAccessModalEl) : null;
+  const settingsAccessPasswordInput = document.getElementById('settings-access-password');
+  const settingsAccessSubmitBtn = document.getElementById('settings-access-submit');
+  const settingsAccessMessage = document.getElementById('settings-access-message');
+
+  function setSettingsLockedUi(locked) {
+    if (!settingsRoot) return;
+    settingsRoot.classList.toggle('settings-locked', !!locked);
+  }
+
+  function showSettingsAccessMessage(html) {
+    if (settingsAccessMessage) settingsAccessMessage.innerHTML = html || '';
+  }
 
   // Pokaż komunikat jeśli trzeba zmienić hasło
   if (mustChangePassword) {
@@ -220,6 +355,46 @@
       <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     `;
     document.querySelector('.card-body').prepend(alert);
+  }
+
+  if (!isSettingsUnlocked) {
+    setSettingsLockedUi(true);
+    settingsAccessModal?.show();
+    setTimeout(() => settingsAccessPasswordInput?.focus(), 150);
+  } else {
+    setSettingsLockedUi(false);
+  }
+
+  if (settingsAccessSubmitBtn) {
+    settingsAccessSubmitBtn.addEventListener('click', async () => {
+      const password = (settingsAccessPasswordInput?.value || '').trim();
+      if (!password) {
+        showSettingsAccessMessage('<div class="alert alert-danger">Podaj hasło do ustawień.</div>');
+        return;
+      }
+      showSettingsAccessMessage('');
+      try {
+        const response = await fetch('/api/settings/access', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const data = await response.json();
+        if (!data.success) {
+          showSettingsAccessMessage(`<div class="alert alert-danger">${data.error || 'Błędne hasło.'}</div>`);
+          return;
+        }
+        isSettingsUnlocked = true;
+        setSettingsLockedUi(false);
+        settingsAccessModal?.hide();
+        if (userRole === 'admin') {
+          loadUsers();
+          loadBackups();
+        }
+      } catch (error) {
+        showSettingsAccessMessage('<div class="alert alert-danger">Błąd komunikacji z serwerem.</div>');
+      }
+    });
   }
 
   // Podgląd haseł (oczko)
@@ -323,8 +498,157 @@
     });
   }
 
+  // Backupy (tylko admin)
+  const backupPassInput = document.getElementById('backup-action-password');
+  const backupNoteInput = document.getElementById('backup-note-input');
+  const backupMessage = document.getElementById('backup-message');
+  const backupsTbody = document.getElementById('backups-table-body');
+  const btnBackupCreate = document.getElementById('btn-backup-create');
+  const btnBackupRefresh = document.getElementById('btn-backup-refresh');
+  const restoreBackupModalEl = document.getElementById('restoreBackupModal');
+  const restoreBackupModal = (restoreBackupModalEl && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(restoreBackupModalEl) : null;
+  const restoreSnapshotNameEl = document.getElementById('restore-snapshot-name');
+  const restoreSnapshotConfirmInput = document.getElementById('restore-snapshot-confirm-input');
+  const restoreBackupMessageEl = document.getElementById('restore-backup-message');
+  const confirmRestoreBackupBtn = document.getElementById('confirm-restore-backup-btn');
+  let restoreCandidateSnapshot = '';
+
+  function showBackupMessage(html) {
+    if (backupMessage) backupMessage.innerHTML = html || '';
+  }
+
+  function showRestoreModalMessage(html) {
+    if (restoreBackupMessageEl) restoreBackupMessageEl.innerHTML = html || '';
+  }
+
+  async function loadBackups() {
+    if (!isSettingsUnlocked) return;
+    if (userRole !== 'admin' || !backupsTbody) return;
+    backupsTbody.innerHTML = '<tr><td colspan="6" class="text-center">Ładowanie...</td></tr>';
+    try {
+      const response = await fetch('/api/backups');
+      const data = await response.json();
+      if (!data.success) {
+        backupsTbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">${data.error || 'Błąd ładowania kopii'}</td></tr>`;
+        return;
+      }
+      if (data.password_configured === false) {
+        showBackupMessage('<div class="alert alert-warning">Akcje backup zablokowane: ustaw `BACKUP_RUNTIME_PASSWORD` w środowisku i zrestartuj aplikację.</div>');
+      }
+      const items = data.items || [];
+      if (!items.length) {
+        backupsTbody.innerHTML = '<tr><td colspan="6" class="text-center">Brak kopii zapasowych</td></tr>';
+        return;
+      }
+      backupsTbody.innerHTML = items.map((it) => {
+        const created = it.created_at_utc ? String(it.created_at_utc).replace('T', ' ').replace('Z', '') : '-';
+        return `
+          <tr>
+            <td><code>${it.name || ''}</code></td>
+            <td>${created}</td>
+            <td>${it.note || ''}</td>
+            <td>${it.files_count || 0}</td>
+            <td>${it.size_human || '-'}</td>
+            <td>
+              <button class="btn btn-sm btn-outline-danger btn-backup-restore" data-snapshot="${it.name || ''}">
+                Przywróć
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      document.querySelectorAll('.btn-backup-restore').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const snapshot = btn.getAttribute('data-snapshot') || '';
+          if (!snapshot) return;
+          if (!restoreBackupModal) {
+            showBackupMessage('<div class="alert alert-danger">Modal przywracania nie jest dostępny.</div>');
+            return;
+          }
+          restoreCandidateSnapshot = snapshot;
+          if (restoreSnapshotNameEl) restoreSnapshotNameEl.textContent = snapshot;
+          if (restoreSnapshotConfirmInput) restoreSnapshotConfirmInput.value = '';
+          showRestoreModalMessage('');
+          restoreBackupModal.show();
+        });
+      });
+    } catch (error) {
+      backupsTbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Błąd podczas ładowania listy kopii</td></tr>';
+    }
+  }
+
+  if (btnBackupCreate) {
+    btnBackupCreate.addEventListener('click', async () => {
+      const password = (backupPassInput?.value || '').trim();
+      const note = (backupNoteInput?.value || '').trim();
+      if (!password) {
+        showBackupMessage('<div class="alert alert-danger">Podaj hasło akcji backup.</div>');
+        return;
+      }
+      showBackupMessage('');
+      try {
+        const response = await fetch('/api/backups/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password, note }),
+        });
+        const data = await response.json();
+        if (data.success) {
+          showBackupMessage(`<div class="alert alert-success">Utworzono kopię: <code>${data.snapshot}</code></div>`);
+          await loadBackups();
+        } else {
+          showBackupMessage(`<div class="alert alert-danger">${data.error || 'Błąd tworzenia kopii.'}</div>`);
+        }
+      } catch (e) {
+        showBackupMessage('<div class="alert alert-danger">Błąd komunikacji podczas tworzenia kopii.</div>');
+      }
+    });
+  }
+
+  if (btnBackupRefresh) {
+    btnBackupRefresh.addEventListener('click', loadBackups);
+  }
+
+  if (confirmRestoreBackupBtn) {
+    confirmRestoreBackupBtn.addEventListener('click', async () => {
+      const snapshot = restoreCandidateSnapshot;
+      const typed = (restoreSnapshotConfirmInput?.value || '').trim();
+      const password = (backupPassInput?.value || '').trim();
+      const note = (backupNoteInput?.value || '').trim() || 'restore_from_settings';
+      if (!snapshot) return;
+      if (!password) {
+        showRestoreModalMessage('<div class="alert alert-danger">Podaj hasło akcji backup w sekcji powyżej.</div>');
+        return;
+      }
+      if (typed !== snapshot) {
+        showRestoreModalMessage('<div class="alert alert-danger">Nazwa kopii nie zgadza się.</div>');
+        return;
+      }
+      showRestoreModalMessage('');
+      try {
+        const r = await fetch('/api/backups/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ snapshot, password, note }),
+        });
+        const d = await r.json();
+        if (d.success) {
+          restoreBackupModal?.hide();
+          showBackupMessage(`<div class="alert alert-success">${d.message || 'Kopia została przywrócona.'}</div>`);
+          await loadBackups();
+        } else {
+          showRestoreModalMessage(`<div class="alert alert-danger">${d.error || 'Błąd przywracania.'}</div>`);
+        }
+      } catch (e) {
+        showRestoreModalMessage('<div class="alert alert-danger">Błąd komunikacji podczas przywracania.</div>');
+      }
+    });
+  }
+
   // Ładowanie listy użytkowników (tylko admin)
   async function loadUsers() {
+    if (!isSettingsUnlocked) return;
     if (userRole !== 'admin') return;
     
     const tbody = document.getElementById('users-table-body');
@@ -552,8 +876,9 @@
   }
 
   // Załaduj użytkowników przy starcie (tylko admin)
-  if (userRole === 'admin') {
+  if (userRole === 'admin' && isSettingsUnlocked) {
     loadUsers();
+    loadBackups();
   }
 })();
 </script>

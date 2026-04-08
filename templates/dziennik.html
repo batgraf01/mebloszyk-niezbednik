@@ -57,6 +57,9 @@
                 }
                 .event-user-areki { color: #0f6cbd; }
                 .event-user-marzena { color: #7b2cbf; }
+                .event-ip.event-ip--colored {
+                    font-weight: 600;
+                }
             </style>
             <div class="card mt-3">
                 <div class="card-body">
@@ -253,6 +256,24 @@
     } else if (name === 'marzena') {
       nameSpan.classList.add('event-user-marzena');
     }
+  });
+
+  /** Jedna stała barwa na IP (deterministyczna, czytelna na jasnym tle tabeli). */
+  function colorForIp(ip) {
+    let h = 5381;
+    for (let i = 0; i < ip.length; i += 1) {
+      h = ((h << 5) + h) + ip.charCodeAt(i);
+      h |= 0;
+    }
+    const hue = Math.abs(h) % 360;
+    return `hsl(${hue}, 72%, 30%)`;
+  }
+
+  document.querySelectorAll('.event-ip').forEach((cell) => {
+    const ip = (cell.getAttribute('data-ip') || '').trim();
+    if (!ip || ip === '-') return;
+    cell.style.color = colorForIp(ip);
+    cell.classList.add('event-ip--colored');
   });
 
   [dateFrom, dateTo, userSelect, actionSelect].forEach((el) => {

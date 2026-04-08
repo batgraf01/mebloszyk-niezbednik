@@ -1,0 +1,2 @@
+2026-04-03T11:07:38.278898+00:00 | RELEASE | R-LOCAL-SETUP-001 | Bootstrap backup mechanism | R-LOCAL-SETUP-001__20260403_110738 | files=4
+2026-04-08T07:18:49.356558+00:00 | SYNC | SRV-PULL-20260408 | Synchronizacja z OVH /opt/batgraf/mag1 (app.py, templates, static); kopia sprzed nadpisania: backups/pre_srv_sync_20260408_091809 | sha256_app=a398bfaa7a1a047a38fd215183498a381b2a56ed3ef0f78b540ad4bc673024ed
